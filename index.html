@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Cat Evolution: Total Chaos!</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+<style>
+:root{color-scheme:dark}*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;background:#17142b;overflow:hidden;touch-action:none}
+body{display:flex;align-items:center;justify-content:center;font-family:"Arial Black",Impact,sans-serif}
+#wrap{position:relative;filter:drop-shadow(0 12px 0 rgba(0,0,0,.3))}
+canvas{display:block;border:4px solid #fff3b0;border-radius:18px;box-shadow:0 0 0 5px #17142b,0 0 0 9px #ff4f9a}
+#ui{position:absolute;left:10px;right:10px;bottom:12px;display:flex;gap:7px;justify-content:center;flex-wrap:wrap}
+button{font:inherit;font-size:12px;color:#fff;background:#32285c;border:3px solid #fff3b0;border-radius:999px;padding:9px 13px;cursor:pointer;box-shadow:0 4px 0 #0b0916;text-shadow:1px 2px #0b0916}
+button:active{transform:translateY(3px);box-shadow:0 1px 0 #0b0916}button:focus-visible{outline:3px solid #d7ff4f;outline-offset:2px}
+#start{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;background:rgba(23,20,43,.95);text-align:center;padding:24px;border-radius:16px;color:white}
+#start h1{font-size:30px;line-height:1.08;color:#fff;text-shadow:3px 4px 0 #ff4f9a,6px 7px 0 #080711;transform:rotate(-2deg)}
+#start h1 span{color:#d7ff4f}#start p{font-family:Arial,sans-serif;font-weight:700;color:#f7d9f1;font-size:15px;max-width:290px;line-height:1.45}
+#start button{font-size:20px;padding:14px 34px;background:#ff4f9a;color:#fff;border-color:white}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="c"></canvas>
+  <div id="ui">
+    <button id="modeBtn">Auto: ON</button>
+    <button id="soundBtn">Sound: ON</button>
+    <button id="resetBtn">Restart</button>
+  </div>
+  <div id="start">
+    <h1>CAT EVOLUTION<br>INTO <span>TOTAL CHAOS!</span></h1>
+    <p>Merge cats, listen to ridiculous “meow-BOOMS!” and watch the fluffy evolution completely spiral out of control.</p>
+    <button id="startBtn">Play</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  const { Engine, Bodies, Body, Composite, Events } = Matter;
+
+  // ---------- Size ----------
+  const W = 540, H = 960;
+  const CX = W / 2, CY = 650, R = 250;
+  const NECK_HALF = 65;
+  const SPAWN_Y = 190;
+
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  const wrap = document.getElementById('wrap');
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const s = Math.min(innerWidth / W, innerHeight / H);
+    canvas.style.width = W * s + 'px';
+    canvas.style.height = H * s + 'px';
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  addEventListener('resize', resize); resize();
+
+  // ---------- Cat levels ----------
+  const LEVELS = [
+    { r: 15,  c: '#ffd9a0', name: 'Tiny' },
+    { r: 21,  c: '#f4a259', name: 'Ginger' },
+    { r: 28,  c: '#b8b8c0', name: 'Smoke' },
+    { r: 36,  c: '#f2f2f2', name: 'Snowball' },
+    { r: 45,  c: '#7a5c45', name: 'Chocolate' },
+    { r: 55,  c: '#e07a8f', name: 'Rose' },
+    { r: 66,  c: '#5fa8d3', name: 'Azure' },
+    { r: 78,  c: '#8e5fd3', name: 'Mystic' },
+    { r: 92,  c: '#ffb703', name: 'FINAL' },
+  ];
+  const MAX = LEVELS.length - 1;
+
+  // ---------- Sounds ----------
+  let ac = null, master = null, soundOn = true;
+  function initAudio() {
+    if (ac) return;
+    ac = new (window.AudioContext || window.webkitAudioContext)();
+    master = ac.createGain(); master.gain.value = 0.72;
+    const comp = ac.createDynamicsCompressor();
+    comp.threshold.value = -18; comp.knee.value = 18; comp.ratio.value = 5;
+    master.connect(comp); comp.connect(ac.destination);
+  }
+  function tone(freq, endFreq, dur, type="sine", vol=.12, delay=0) {
+    if (!ac || !soundOn) return;
+    const now=ac.currentTime+delay, o=ac.createOscillator(), g=ac.createGain();
+    o.type=type; o.frequency.setValueAtTime(Math.max(25,freq),now);
+    o.frequency.exponentialRampToValueAtTime(Math.max(25,endFreq),now+dur);
+    g.gain.setValueAtTime(.0001,now); g.gain.linearRampToValueAtTime(vol,now+Math.min(.025,dur*.2));
+    g.gain.exponentialRampToValueAtTime(.0001,now+dur);
+    o.connect(g); g.connect(master); o.start(now); o.stop(now+dur+.02);
+  }
+  function noiseBurst(dur=.12, vol=.08, cutoff=900) {
+    if(!ac||!soundOn)return;
+    const now=ac.currentTime,len=Math.max(1,Math.floor(ac.sampleRate*dur)),buf=ac.createBuffer(1,len,ac.sampleRate),d=buf.getChannelData(0);
+    for(let i=0;i<len;i++)d[i]=(Math.random()*2-1)*(1-i/len);
+    const src=ac.createBufferSource(),f=ac.createBiquadFilter(),g=ac.createGain();
+    f.type="lowpass";f.frequency.value=cutoff;g.gain.setValueAtTime(vol,now);g.gain.exponentialRampToValueAtTime(.0001,now+dur);
+    src.buffer=buf;src.connect(f);f.connect(g);g.connect(master);src.start(now);src.stop(now+dur);
+  }
+  function meow(level) {
+    if(!ac||!soundOn)return 0;if(ac.state==="suspended")ac.resume();
+    const t=level/MAX,dur=.22+t*.38;
+    tone(880-t*650,180+t*80,dur,t>.55?"sawtooth":"triangle",.13+t*.04);
+    tone(1320-t*900,320+t*60,dur*.72,"square",.035,.025);
+    if(t>.42){tone(95+t*35,48,.24+t*.12,"sawtooth",.12,.04);noiseBurst(.09,.035,600);}
+    return dur;
+  }
+  function funnyMerge(level) {
+    if(!ac||!soundOn)return;const t=level/MAX;
+    tone(230+t*90,760+t*120,.13,"sine",.16);
+    tone(500+t*120,120,.24,"triangle",.12,.08);
+    if(Math.random()<.34)tone(900,250,.18,"square",.045,.13);
+  }
+  function fanfare() {
+    if(!ac||!soundOn)return;
+    [0,.11,.22,.36].forEach((d,i)=>tone([392,494,587,784][i],[392,494,587,1046][i],.28,"square",.09,d));
+    tone(110,42,.48,"sawtooth",.14,.05);noiseBurst(.22,.08,1600);
+  }
+  function bonk(){if(!ac||!soundOn)return;tone(180,55,.17,"square",.15);noiseBurst(.08,.09,500);}
+
+  // ---------- Physics ----------
+  const engine = Engine.create({ gravity: { x: 0, y: 1.3 } });
+  const world = engine.world;
+
+  function buildWalls() {
+    const gapAng = Math.asin(NECK_HALF / R);
+    const a0 = -Math.PI / 2 + gapAng;
+    const a1 = 3 * Math.PI / 2 - gapAng;
+    const steps = 96, th = 40;
+    const segLen = (a1 - a0) / steps * R * 1.35;
+    for (let i = 0; i <= steps; i++) {
+      const a = a0 + (a1 - a0) * i / steps;
+      const rr = R + th / 2;
+      Composite.add(world, Bodies.rectangle(CX + Math.cos(a) * rr, CY + Math.sin(a) * rr, segLen, th, {
+        isStatic: true, angle: a + Math.PI / 2, friction: 0.3, restitution: 0.15, label: 'wall'
+      }));
+    }
+    const nyBottom = CY - Math.sqrt(R * R - NECK_HALF * NECK_HALF);
+    const nyTop = 140, nh = nyBottom - nyTop + 30;
+    [-1, 1].forEach(s => {
+      Composite.add(world, Bodies.rectangle(CX + s * (NECK_HALF + 15), nyTop + nh / 2, 30, nh, {
+        isStatic: true, label: 'wall', friction: 0.1
+      }));
+    });
+  }
+  buildWalls();
+
+  // ---------- State ----------
+  let score = 0, best = 0, reachedFinal = false, auto = true;
+  let lastDrop = 0, nextAuto = 0, overSince = 0;
+  const floaters = [], particles = [];
+  let banner = null, shake = 0, comicText = null;
+
+  function spawn(level, x, y, vy = 0) {
+    const L = LEVELS[level];
+    const b = Bodies.circle(x, y, L.r, {
+      restitution: 0.25, friction: 0.25, frictionAir: 0.004, density: 0.0012, label: 'cat'
+    });
+    b.level = level; b.born = performance.now(); b.popStart = performance.now(); b.meowUntil = 0;
+    Body.setVelocity(b, { x: (Math.random() - 0.5) * 1.5, y: vy });
+    Body.setAngularVelocity(b, (Math.random() - 0.5) * 0.1);
+    Composite.add(world, b);
+    return b;
+  }
+  function dropRandom(x) {
+    const lvl = Math.random() < 0.55 ? 0 : Math.random() < 0.6 ? 1 : 2;
+    const cx = Math.max(CX - NECK_HALF + LEVELS[lvl].r + 2, Math.min(CX + NECK_HALF - LEVELS[lvl].r - 2, x));
+    spawn(lvl, cx, SPAWN_Y, 2);
+  }
+
+  Events.on(engine, 'collisionStart', ev => {
+    for (const p of ev.pairs) {
+      const a = p.bodyA, b = p.bodyB;
+      if (a.label !== 'cat' || b.label !== 'cat') continue;
+      if (a.dead || b.dead || a.level !== b.level || a.level >= MAX) continue;
+      a.dead = b.dead = true;
+      const mx = (a.position.x + b.position.x) / 2, my = (a.position.y + b.position.y) / 2;
+      const nl = a.level + 1;
+      Composite.remove(world, a); Composite.remove(world, b);
+      const nb = spawn(nl, mx, my);
+      Body.setVelocity(nb, { x: (a.velocity.x + b.velocity.x) / 2, y: (a.velocity.y + b.velocity.y) / 2 });
+      funnyMerge(nl);
+      const d = meow(nl);
+      shake = Math.min(13,3+nl*1.15);
+      comicText={text:['BOOM!','POOF!','CAT-BAM!','MEWOLUTION!'][Math.floor(Math.random()*4)],t0:performance.now(),x:mx,y:my-LEVELS[nl].r-18};
+      nb.meowUntil = performance.now() + (d || 0.4) * 1000;
+      score += (nl + 1) * (nl + 1);
+      best = Math.max(best, score);
+      const t = nl / MAX;
+      floaters.push({
+        x: mx, y: my - LEVELS[nl].r, t0: performance.now(),
+        text: t < 0.34 ? 'meow!' : t < 0.67 ? 'MEOW!' : 'MEEOOOW!',
+        size: 18 + t * 40, color: LEVELS[nl].c
+      });
+      for (let i = 0; i < 8 + nl * 2; i++) {
+        const ang = Math.random() * Math.PI * 2, sp = 1 + Math.random() * (2 + nl);
+        particles.push({ x: mx, y: my, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 1,
+          life: 1, c: LEVELS[nl].c, s: 2 + Math.random() * 3 });
+      }
+      if (nl === MAX && !reachedFinal) {
+        reachedFinal = true;
+        banner = { text: 'FINAL FORM!', t0: performance.now() };
+        fanfare();
+        for (let i = 0; i < 120; i++) {
+          particles.push({ x: mx, y: my, vx: (Math.random() - 0.5) * 12, vy: -Math.random() * 10,
+            life: 1.5, c: ['#c8f025', '#ff6a1a', '#ffb703', '#fff'][i % 4], s: 3 + Math.random() * 4 });
+        }
+      }
+    }
+  });
+
+  function resetGame() {
+    Composite.allBodies(world).filter(b => b.label === 'cat').forEach(b => Composite.remove(world, b));
+    score = 0; reachedFinal = false; banner = null; overSince = 0;
+    floaters.length = 0; particles.length = 0; comicText = null; shake = 0;
+  }
+
+  // ---------- Drawing cats ----------
+  function drawCat(c,r,level,open,shade=1){
+    const col=LEVELS[level].c;c.save();c.lineJoin="round";
+    c.fillStyle=col;c.strokeStyle="#20152e";c.lineWidth=Math.max(2.5,r*.09);
+    [-1,1].forEach(s=>{
+      c.beginPath();c.moveTo(s*r*.78,-r*.48);c.lineTo(s*r*.78,-r*1.18);c.lineTo(s*r*.18,-r*.82);c.closePath();c.fill();c.stroke();
+      c.fillStyle="#ff77ad";c.beginPath();c.moveTo(s*r*.72,-r*.65);c.lineTo(s*r*.73,-r*1.02);c.lineTo(s*r*.42,-r*.83);c.closePath();c.fill();c.fillStyle=col;
+    });
+    c.beginPath();c.arc(0,0,r,0,Math.PI*2);c.fill();c.stroke();
+    c.strokeStyle="#20152e";c.lineWidth=Math.max(1.8,r*.075);
+    [-1,1].forEach(s=>{c.beginPath();c.moveTo(s*r*.17,-r*.38);c.lineTo(s*r*.48,-r*.48);c.stroke();});
+    const ey=-r*.12,ex=r*.36;
+    [-1,1].forEach(s=>{
+      c.fillStyle="#fff";c.beginPath();c.ellipse(s*ex,ey,r*.22,r*.28,0,0,Math.PI*2);c.fill();c.stroke();
+      c.fillStyle="#24152d";c.beginPath();c.ellipse(s*ex,ey,r*.115,r*.19,0,0,Math.PI*2);c.fill();
+      c.fillStyle="#fff";c.beginPath();c.arc(s*ex-r*.035,ey-r*.09,r*.055,0,Math.PI*2);c.fill();
+    });
+    c.fillStyle="rgba(255,75,145,.75)";[-1,1].forEach(s=>{c.beginPath();c.ellipse(s*r*.63,r*.23,r*.16,r*.085,0,0,Math.PI*2);c.fill();});
+    c.fillStyle="#ff4f9a";c.beginPath();c.moveTo(-r*.09,r*.17);c.lineTo(r*.09,r*.17);c.lineTo(0,r*.27);c.closePath();c.fill();c.stroke();
+    c.strokeStyle="#20152e";c.lineWidth=Math.max(1.7,r*.055);
+    if(open){c.fillStyle="#57172f";c.beginPath();c.ellipse(0,r*.48,r*(.19+level*.004),r*(.22+level*.006),0,0,Math.PI*2);c.fill();c.stroke();c.fillStyle="#ff8aaf";c.beginPath();c.ellipse(0,r*.59,r*.105,r*.075,0,0,Math.PI*2);c.fill();}
+    else{c.beginPath();c.moveTo(-r*.15,r*.42);c.quadraticCurveTo(0,r*.54,r*.15,r*.42);c.stroke();}
+    c.strokeStyle="#fff8df";c.lineWidth=Math.max(1,r*.035);
+    [-1,1].forEach(s=>[-.04,.1].forEach(dy=>{c.beginPath();c.moveTo(s*r*.36,r*(.29+dy));c.lineTo(s*r*.98,r*(.2+dy*2));c.stroke();}));
+    c.globalAlpha=.35;c.fillStyle="#fff";c.beginPath();c.ellipse(-r*.28,-r*.56,r*.18,r*.08,-.5,0,Math.PI*2);c.fill();c.restore();
+  }
+
+  // ---------- Controls ----------
+  function pointerX(e) {
+    const rect = canvas.getBoundingClientRect();
+    return (e.clientX - rect.left) / rect.width * W;
+  }
+  canvas.addEventListener('pointerdown', e => {
+    initAudio();
+    const now = performance.now();
+    if (now - lastDrop < 350) return;
+    lastDrop = now;
+    dropRandom(pointerX(e));
+  });
+
+  document.getElementById('startBtn').onclick = () => {
+    initAudio(); ac.resume();
+    document.getElementById('start').style.display = 'none';
+    meow(0);
+  };
+  const modeBtn = document.getElementById('modeBtn');
+  modeBtn.onclick = () => { auto = !auto; modeBtn.textContent = 'Auto: ' + (auto ? 'ON' : 'OFF'); };
+  const soundBtn = document.getElementById('soundBtn');
+  soundBtn.onclick = () => { soundOn = !soundOn; soundBtn.textContent = 'Sound: ' + (soundOn ? 'ON' : 'OFF'); };
+  document.getElementById('resetBtn').onclick = resetGame;
+
+  // ---------- Loop ----------
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(now - last, 33); last = now;
+    Engine.update(engine, dt / 2); Engine.update(engine, dt / 2);
+
+    if (auto && now > nextAuto && document.getElementById('start').style.display === 'none') {
+      dropRandom(CX + (Math.random() - 0.5) * 40);
+      nextAuto = now + 650 + Math.random() * 300;
+    }
+
+    const cats = Composite.allBodies(world).filter(b => b.label === 'cat');
+    const full = cats.some(b => now - b.born > 1500 &&
+      b.position.y - LEVELS[b.level].r < CY - R + 6 && b.speed < 0.4);
+    if (full) { if (!overSince) overSince = now; else if (now - overSince > 1800) { banner = { text: 'CAT-ASTROPHE!!!', t0: now }; bonk(); resetGame(); } }
+    else overSince = 0;
+
+    draw(now, cats);
+    requestAnimationFrame(frame);
+  }
+
+  function draw(now, cats) {
+    const grad=ctx.createLinearGradient(0,0,W,H);grad.addColorStop(0,'#28205b');grad.addColorStop(.55,'#51275e');grad.addColorStop(1,'#17142b');
+    ctx.fillStyle=grad;ctx.fillRect(0,0,W,H);
+    ctx.save();ctx.translate(CX,CY);ctx.strokeStyle='rgba(255,243,176,.12)';ctx.lineWidth=3;
+    for(let i=0;i<28;i++){const a=i*Math.PI*2/28;ctx.beginPath();ctx.moveTo(Math.cos(a)*85,Math.sin(a)*85);ctx.lineTo(Math.cos(a)*520,Math.sin(a)*520);ctx.stroke();}ctx.restore();
+    ctx.fillStyle='rgba(255,255,255,.09)';for(let y=140;y<860;y+=24)for(let x=18+(Math.floor(y/24)%2)*12;x<W;x+=24){ctx.beginPath();ctx.arc(x,y,1.7,0,Math.PI*2);ctx.fill();}
+
+    // Title
+    ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    ctx.font = '900 40px "Arial Black", Impact, sans-serif';
+    ctx.lineJoin = 'round'; ctx.lineWidth = 8; ctx.strokeStyle = '#000';
+    ctx.strokeText('CAT EVOLUTION', CX, 60); ctx.fillStyle = '#fff'; ctx.fillText('CAT EVOLUTION', CX, 60);
+    ctx.font = '900 42px "Arial Black", Impact, sans-serif';
+    ctx.strokeText('TOTAL CHAOS?!', CX, 112); ctx.fillStyle = '#c8f025'; ctx.fillText('TOTAL CHAOS?!', CX, 112);
+
+    // Container
+    const gapAng = Math.asin(NECK_HALF / R);
+    const nyBottom = CY - Math.sqrt(R * R - NECK_HALF * NECK_HALF);
+    ctx.save();
+    ctx.shadowColor = '#ff4f9a'; ctx.shadowBlur = 25;
+    ctx.strokeStyle = '#fff3b0'; ctx.lineWidth = 13; ctx.lineCap = 'butt';
+    ctx.beginPath(); ctx.arc(CX, CY, R + 6, -Math.PI / 2 + gapAng, 3 * Math.PI / 2 - gapAng); ctx.stroke();
+    ctx.fillStyle = '#ff4f9a';
+    ctx.fillRect(CX - NECK_HALF - 22, 150, 12, nyBottom - 150);
+    ctx.fillRect(CX + NECK_HALF + 10, 150, 12, nyBottom - 150);
+    ctx.restore();
+
+    // Cats
+    for (const b of cats) {
+      const L = LEVELS[b.level];
+      const pt = Math.min(1, (now - b.popStart) / 260);
+      const pop = 1 + Math.sin(pt * Math.PI) * 0.25 * (b.popStart > b.born ? 1 : 0.4);
+      ctx.save();
+      ctx.translate(b.position.x, b.position.y);
+      ctx.rotate(b.angle * 0.6);
+      ctx.scale(pop, pop);
+      if (b.level === MAX) { ctx.shadowColor = '#ffb703'; ctx.shadowBlur = 25; }
+      drawCat(ctx, L.r, b.level, now < b.meowUntil);
+      ctx.restore();
+    }
+
+    // Particles
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.x += p.vx; p.y += p.vy; p.vy += 0.15; p.life -= 0.02;
+      if (p.life <= 0) { particles.splice(i, 1); continue; }
+      ctx.globalAlpha = Math.min(1, p.life);
+      ctx.fillStyle = p.c; ctx.fillRect(p.x, p.y, p.s, p.s);
+    }
+    ctx.globalAlpha = 1;
+
+    // Floating meows
+    for (let i = floaters.length - 1; i >= 0; i--) {
+      const f = floaters[i], k = (now - f.t0) / 900;
+      if (k >= 1) { floaters.splice(i, 1); continue; }
+      ctx.globalAlpha = 1 - k;
+      ctx.font = `900 ${f.size}px "Arial Black", Impact, sans-serif`;
+      ctx.lineWidth = 6; ctx.strokeStyle = '#000';
+      ctx.strokeText(f.text, f.x, f.y - k * 50);
+      ctx.fillStyle = f.color; ctx.fillText(f.text, f.x, f.y - k * 50);
+    }
+    ctx.globalAlpha = 1;
+
+    if(comicText){
+      const k=(now-comicText.t0)/650;
+      if(k>=1)comicText=null;
+      else{ctx.save();ctx.globalAlpha=1-k;ctx.translate(comicText.x,comicText.y-k*35);ctx.rotate(-.12);ctx.textAlign='center';
+      ctx.font=`900 ${Math.max(20,34-k*10)}px "Arial Black", Impact, sans-serif`;ctx.lineWidth=7;ctx.strokeStyle='#21152f';ctx.strokeText(comicText.text,0,0);
+      ctx.fillStyle='#d7ff4f';ctx.fillText(comicText.text,0,0);ctx.restore();}
+    }
+
+    // Score
+    ctx.font = '900 26px "Arial Black", Impact, sans-serif';
+    ctx.textAlign = 'left'; ctx.fillStyle = '#fff'; ctx.fillText('Score: ' + score, 20, 940 - 36);
+    ctx.textAlign = 'right'; ctx.fillStyle = '#bbb'; ctx.font = '700 18px Arial, sans-serif';
+    ctx.fillText('Best: ' + best, W - 20, 940 - 38);
+
+    // Evolution bar
+    const n = LEVELS.length, gap = (W - 60) / n;
+    for (let i = 0; i < n; i++) {
+      ctx.save();
+      ctx.translate(30 + gap * (i + 0.5), 912);
+      const rr = 6 + i * 1.6;
+      drawCat(ctx, rr, i, false);
+      ctx.restore();
+    }
+
+    // Banner
+    if (banner) {
+      const k = (now - banner.t0) / 2500;
+      if (k >= 1) banner = null; else {
+        ctx.globalAlpha = k < 0.8 ? 1 : (1 - k) * 5;
+        ctx.textAlign = 'center';
+        ctx.font = '900 42px "Arial Black", Impact, sans-serif';
+        ctx.lineWidth = 9; ctx.strokeStyle = '#000';
+        ctx.strokeText(banner.text, CX, CY - 40);
+        ctx.fillStyle = '#d7ff4f'; ctx.fillText(banner.text, CX, CY - 40);
+        ctx.globalAlpha = 1;
+      }
+    }
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
