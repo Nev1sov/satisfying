@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Naruto Merge Chaos</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;background:#0d0a1a;overflow:hidden;touch-action:none}
+body{display:flex;align-items:center;justify-content:center;font-family:"Arial Black",Impact,sans-serif}
+#wrap{position:relative;filter:drop-shadow(0 12px 0 rgba(0,0,0,.4))}
+canvas{display:block;border:4px solid #ff9f1c;border-radius:18px;box-shadow:0 0 0 5px #0d0a1a,0 0 0 9px #e63946}
+#start{
+  position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:18px;background:rgba(13,10,26,.96);text-align:center;padding:24px;border-radius:16px;color:#fff;
+}
+#start h1{font-size:28px;line-height:1.1;color:#fff;text-shadow:3px 4px 0 #e63946,6px 7px 0 #000;transform:rotate(-1.5deg)}
+#start h1 span{color:#ff9f1c}
+#start p{font-family:Arial,sans-serif;font-weight:700;color:#f1e0d6;font-size:14px;max-width:300px;line-height:1.45}
+#start button{
+  font:inherit;font-size:20px;padding:14px 36px;background:#e63946;color:#fff;
+  border:3px solid #ff9f1c;border-radius:999px;cursor:pointer;box-shadow:0 4px 0 #5c1a1a;
+}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="c"></canvas>
+  <div id="start">
+    <h1>NARUTO<br><span>MERGE CHAOS</span></h1>
+    <p>Merge the characters, listen to their voices and watch the chaos grow!</p>
+    <button id="startBtn">PLAY</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  const { Engine, Bodies, Body, Composite, Events } = Matter;
+
+  const W = 540, H = 960;
+  const CX = W / 2, CY = 650, R = 250;
+  const NECK_HALF = 65;
+  const SPAWN_Y = 185;
+
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const s = Math.min(innerWidth / W, innerHeight / H);
+    canvas.style.width = W * s + 'px';
+    canvas.style.height = H * s + 'px';
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  addEventListener('resize', resize);
+  resize();
+
+  // ========== CHARACTERS ==========
+  const LEVELS = [
+    { name: 'Kid Naruto',     color: '#ff9f1c', img: 'img/kid_naruto.jpg',     sfx: 'sfx/dattebayo.mp3' },
+    { name: 'Young Sasuke',   color: '#4cc9f0', img: 'img/young_sasuke.jpg',   sfx: 'sfx/chidori.mp3' },
+    { name: 'Sakura',         color: '#ff85a1', img: 'img/sakura.jpg',         sfx: 'sfx/sakura.mp3' },
+    { name: 'Kakashi',        color: '#adb5bd', img: 'img/kakashi.jpg',        sfx: 'sfx/kakashi.mp3' },
+    { name: 'Gaara',          color: '#e63946', img: 'img/gaara.jpg',          sfx: 'sfx/gaara.mp3' },
+    { name: 'Itachi',         color: '#7b2cbf', img: 'img/itachi.jpg',         sfx: 'sfx/itachi.mp3' },
+    { name: 'Pain',           color: '#f72585', img: 'img/pain.jpg',           sfx: 'sfx/pain.mp3' },
+    { name: 'Adult Sasuke',   color: '#4361ee', img: 'img/adult_sasuke.jpg',   sfx: 'sfx/chidori.mp3' },
+    { name: 'Sage Naruto',    color: '#ffb703', img: 'img/sage_naruto.jpg',    sfx: 'sfx/dattebayo.mp3' },
+  ];
+  const MAX = LEVELS.length - 1;
+
+  // Preload images & audio
+  const images = {};
+  const sounds = {};
+  let assetsLoaded = 0;
+  const totalAssets = LEVELS.length * 2;
+
+  LEVELS.forEach((L, i) => {
+    const img = new Image();
+    img.src = L.img;
+    img.onload = img.onerror = () => { assetsLoaded++; };
+    images[i] = img;
+
+    const audio = new Audio(L.sfx);
+    audio.preload = 'auto';
+    audio.oncanplaythrough = audio.onerror = () => { assetsLoaded++; };
+    sounds[i] = audio;
+  });
+
+  function playVoice(level) {
+    const a = sounds[level];
+    if (!a) return;
+    try {
+      a.currentTime = 0;
+      a.volume = 0.85;
+      a.play().catch(() => {});
+    } catch (e) {}
+  }
+
+  // ========== PHYSICS ==========
+  const engine = Engine.create({ gravity: { x: 0, y: 1.35 } });
+  const world = engine.world;
+
+  function buildWalls() {
+    const gapAng = Math.asin(NECK_HALF / R);
+    const a0 = -Math.PI / 2 + gapAng;
+    const a1 = 3 * Math.PI / 2 - gapAng;
+    const steps = 96, th = 40;
+    const segLen = (a1 - a0) / steps * R * 1.35;
+    for (let i = 0; i <= steps; i++) {
+      const a = a0 + (a1 - a0) * i / steps;
+      const rr = R + th / 2;
+      Composite.add(world, Bodies.rectangle(
+        CX + Math.cos(a) * rr, CY + Math.sin(a) * rr, segLen, th,
+        { isStatic: true, angle: a + Math.PI / 2, friction: 0.28, restitution: 0.12, label: 'wall' }
+      ));
+    }
+    const nyBottom = CY - Math.sqrt(R * R - NECK_HALF * NECK_HALF);
+    const nyTop = 140, nh = nyBottom - nyTop + 30;
+    [-1, 1].forEach(s => {
+      Composite.add(world, Bodies.rectangle(
+        CX + s * (NECK_HALF + 15), nyTop + nh / 2, 30, nh,
+        { isStatic: true, label: 'wall', friction: 0.1 }
+      ));
+    });
+  }
+  buildWalls();
+
+  // ========== STATE ==========
+  let score = 0, best = 0, reachedFinal = false;
+  let lastDrop = 0, nextAuto = 0, overSince = 0;
+  const floaters = [], particles = [];
+  let banner = null, comicText = null;
+  let gameStarted = false;
+  let startTime = 0;
+
+  const RADIUS = [16, 22, 29, 37, 46, 56, 67, 80, 95];
+
+  function spawn(level, x, y, vy = 0) {
+    const r = RADIUS[level];
+    const b = Bodies.circle(x, y, r, {
+      restitution: 0.22, friction: 0.22, frictionAir: 0.0035,
+      density: 0.0011, label: 'char'
+    });
+    b.level = level;
+    b.born = performance.now();
+    b.popStart = performance.now();
+    Body.setVelocity(b, { x: (Math.random() - 0.5) * 1.4, y: vy });
+    Body.setAngularVelocity(b, (Math.random() - 0.5) * 0.08);
+    Composite.add(world, b);
+    return b;
+  }
+
+  function dropRandom(x) {
+    const lvl = Math.random() < 0.58 ? 0 : Math.random() < 0.62 ? 1 : 2;
+    const r = RADIUS[lvl];
+    const cx = Math.max(CX - NECK_HALF + r + 2, Math.min(CX + NECK_HALF - r - 2, x));
+    spawn(lvl, cx, SPAWN_Y, 2.2);
+  }
+
+  Events.on(engine, 'collisionStart', ev => {
+    for (const p of ev.pairs) {
+      const a = p.bodyA, b = p.bodyB;
+      if (a.label !== 'char' || b.label !== 'char') continue;
+      if (a.dead || b.dead || a.level !== b.level || a.level >= MAX) continue;
+
+      a.dead = b.dead = true;
+      const mx = (a.position.x + b.position.x) / 2;
+      const my = (a.position.y + b.position.y) / 2;
+      const nl = a.level + 1;
+
+      Composite.remove(world, a);
+      Composite.remove(world, b);
+
+      const nb = spawn(nl, mx, my);
+      Body.setVelocity(nb, {
+        x: (a.velocity.x + b.velocity.x) / 2,
+        y: (a.velocity.y + b.velocity.y) / 2
+      });
+
+      // Voice
+      playVoice(nl);
+
+      // Comic text
+      const texts = ['BOOM!', 'POOF!', 'MERGE!', 'NEXT!', 'YES!'];
+      comicText = {
+        text: texts[Math.floor(Math.random() * texts.length)],
+        t0: performance.now(),
+        x: mx,
+        y: my - RADIUS[nl] - 20,
+        color: LEVELS[nl].color
+      };
+
+      score += (nl + 1) * (nl + 1);
+      best = Math.max(best, score);
+
+      // Particles
+      for (let i = 0; i < 10 + nl * 3; i++) {
+        const ang = Math.random() * Math.PI * 2;
+        const sp = 1.2 + Math.random() * (2.5 + nl * 0.4);
+        particles.push({
+          x: mx, y: my,
+          vx: Math.cos(ang) * sp,
+          vy: Math.sin(ang) * sp - 1.2,
+          life: 1,
+          c: LEVELS[nl].color,
+          s: 2.5 + Math.random() * 3.5
+        });
+      }
+
+      // Final form special
+      if (nl === MAX && !reachedFinal) {
+        reachedFinal = true;
+        banner = { text: 'SAGE MODE!', t0: performance.now() };
+        for (let i = 0; i < 140; i++) {
+          particles.push({
+            x: mx, y: my,
+            vx: (Math.random() - 0.5) * 14,
+            vy: -Math.random() * 11,
+            life: 1.6,
+            c: ['#ffb703', '#ff9f1c', '#fff', '#e63946'][i % 4],
+            s: 3 + Math.random() * 5
+          });
+        }
+      }
+    }
+  });
+
+  function resetGame() {
+    Composite.allBodies(world).filter(b => b.label === 'char').forEach(b => Composite.remove(world, b));
+    score = 0;
+    reachedFinal = false;
+    banner = null;
+    overSince = 0;
+    floaters.length = 0;
+    particles.length = 0;
+    comicText = null;
+  }
+
+  // ========== DRAW ==========
+  function drawChar(ctx, x, y, r, level, angle) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle * 0.5);
+
+    // Glow for final
+    if (level === MAX) {
+      ctx.shadowColor = '#ffb703';
+      ctx.shadowBlur = 28;
+    }
+
+    // Circle clip + image
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+
+    const img = images[level];
+    if (img && img.complete && img.naturalWidth > 0) {
+      const size = r * 2.15;
+      ctx.drawImage(img, -size / 2, -size / 2, size, size);
+    } else {
+      // fallback color
+      ctx.fillStyle = LEVELS[level].color;
+      ctx.fill();
+    }
+
+    ctx.restore();
+
+    // Border
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.strokeStyle = LEVELS[level].color;
+    ctx.lineWidth = 4.5;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(x, y, r - 1.8, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+  }
+
+  // ========== INPUT ==========
+  function pointerX(e) {
+    const rect = canvas.getBoundingClientRect();
+    return (e.clientX - rect.left) / rect.width * W;
+  }
+
+  canvas.addEventListener('pointerdown', e => {
+    if (!gameStarted) return;
+    const now = performance.now();
+    if (now - lastDrop < 260) return;
+    lastDrop = now;
+    dropRandom(pointerX(e));
+  });
+
+  document.getElementById('startBtn').onclick = () => {
+    document.getElementById('start').style.display = 'none';
+    gameStarted = true;
+    startTime = performance.now();
+    playVoice(0);
+
+    // Fast start
+    setTimeout(() => dropRandom(CX - 40), 150);
+    setTimeout(() => dropRandom(CX + 30), 320);
+    setTimeout(() => dropRandom(CX), 480);
+    setTimeout(() => dropRandom(CX - 20), 650);
+  };
+
+  // ========== LOOP ==========
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(now - last, 33);
+    last = now;
+
+    Engine.update(engine, dt / 2);
+    Engine.update(engine, dt / 2);
+
+    // Very fast auto spawn
+    if (gameStarted && now > nextAuto) {
+      dropRandom(CX + (Math.random() - 0.5) * 80);
+      const elapsed = (now - startTime) / 1000;
+      if (elapsed < 4) {
+        nextAuto = now + 240 + Math.random() * 160;      // very fast
+      } else if (elapsed < 9) {
+        nextAuto = now + 380 + Math.random() * 200;
+      } else {
+        nextAuto = now + 520 + Math.random() * 260;
+      }
+    }
+
+    const chars = Composite.allBodies(world).filter(b => b.label === 'char');
+
+    // Overflow
+    const full = chars.some(b => now - b.born > 1400 &&
+      b.position.y - RADIUS[b.level] < CY - R + 5 && b.speed < 0.35);
+    if (full) {
+      if (!overSince) overSince = now;
+      else if (now - overSince > 1500) {
+        banner = { text: 'TOO MANY!', t0: now };
+        resetGame();
+        nextAuto = now + 350;
+      }
+    } else overSince = 0;
+
+    draw(now, chars);
+    requestAnimationFrame(frame);
+  }
+
+  function draw(now, chars) {
+    // Background
+    const grad = ctx.createLinearGradient(0, 0, W, H);
+    grad.addColorStop(0, '#1a1030');
+    grad.addColorStop(0.5, '#2d1b4e');
+    grad.addColorStop(1, '#0d0a1a');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+
+    // Soft rays
+    ctx.save();
+    ctx.translate(CX, CY);
+    ctx.strokeStyle = 'rgba(255,159,28,0.08)';
+    ctx.lineWidth = 2.5;
+    for (let i = 0; i < 24; i++) {
+      const a = i * Math.PI * 2 / 24;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a) * 90, Math.sin(a) * 90);
+      ctx.lineTo(Math.cos(a) * 480, Math.sin(a) * 480);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Title
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.font = '900 36px "Arial Black", Impact, sans-serif';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 7;
+    ctx.strokeStyle = '#000';
+    ctx.strokeText('NARUTO', CX, 58);
+    ctx.fillStyle = '#fff';
+    ctx.fillText('NARUTO', CX, 58);
+
+    ctx.font = '900 38px "Arial Black", Impact, sans-serif';
+    ctx.strokeText('MERGE CHAOS', CX, 105);
+    ctx.fillStyle = '#ff9f1c';
+    ctx.fillText('MERGE CHAOS', CX, 105);
+
+    // Container
+    const gapAng = Math.asin(NECK_HALF / R);
+    const nyBottom = CY - Math.sqrt(R * R - NECK_HALF * NECK_HALF);
+    ctx.save();
+    ctx.shadowColor = '#e63946';
+    ctx.shadowBlur = 22;
+    ctx.strokeStyle = '#ff9f1c';
+    ctx.lineWidth = 12;
+    ctx.beginPath();
+    ctx.arc(CX, CY, R + 5, -Math.PI / 2 + gapAng, 3 * Math.PI / 2 - gapAng);
+    ctx.stroke();
+    ctx.fillStyle = '#e63946';
+    ctx.fillRect(CX - NECK_HALF - 20, 148, 11, nyBottom - 148);
+    ctx.fillRect(CX + NECK_HALF + 9, 148, 11, nyBottom - 148);
+    ctx.restore();
+
+    // Characters
+    for (const b of chars) {
+      const r = RADIUS[b.level];
+      const pt = Math.min(1, (now - b.popStart) / 240);
+      const pop = 1 + Math.sin(pt * Math.PI) * 0.22 * (b.popStart > b.born ? 1 : 0.35);
+      ctx.save();
+      ctx.translate(b.position.x, b.position.y);
+      ctx.scale(pop, pop);
+      drawChar(ctx, 0, 0, r, b.level, b.angle);
+      ctx.restore();
+    }
+
+    // Particles
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.x += p.vx; p.y += p.vy; p.vy += 0.16; p.life -= 0.018;
+      if (p.life <= 0) { particles.splice(i, 1); continue; }
+      ctx.globalAlpha = Math.min(1, p.life);
+      ctx.fillStyle = p.c;
+      ctx.fillRect(p.x, p.y, p.s, p.s);
+    }
+    ctx.globalAlpha = 1;
+
+    // Comic text
+    if (comicText) {
+      const k = (now - comicText.t0) / 700;
+      if (k >= 1) comicText = null;
+      else {
+        ctx.save();
+        ctx.globalAlpha = 1 - k;
+        ctx.translate(comicText.x, comicText.y - k * 40);
+        ctx.rotate(-0.1);
+        ctx.textAlign = 'center';
+        ctx.font = `900 ${Math.max(22, 36 - k * 12)}px "Arial Black", Impact, sans-serif`;
+        ctx.lineWidth = 6;
+        ctx.strokeStyle = '#000';
+        ctx.strokeText(comicText.text, 0, 0);
+        ctx.fillStyle = comicText.color || '#ff9f1c';
+        ctx.fillText(comicText.text, 0, 0);
+        ctx.restore();
+      }
+    }
+
+    // Score
+    ctx.font = '900 24px "Arial Black", Impact, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#fff';
+    ctx.fillText('Score: ' + score, 18, 910);
+
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#aaa';
+    ctx.font = '700 17px Arial, sans-serif';
+    ctx.fillText('Best: ' + best, W - 18, 910);
+
+    // Banner
+    if (banner) {
+      const k = (now - banner.t0) / 2600;
+      if (k >= 1) banner = null;
+      else {
+        ctx.globalAlpha = k < 0.75 ? 1 : (1 - k) * 4;
+        ctx.textAlign = 'center';
+        ctx.font = '900 40px "Arial Black", Impact, sans-serif';
+        ctx.lineWidth = 8;
+        ctx.strokeStyle = '#000';
+        ctx.strokeText(banner.text, CX, CY - 50);
+        ctx.fillStyle = '#ffb703';
+        ctx.fillText(banner.text, CX, CY - 50);
+        ctx.globalAlpha = 1;
+      }
+    }
+  }
+
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
