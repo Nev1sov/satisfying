@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#02030a">
+<title>Part 2</title>
+<style>
+html,body{margin:0;height:100%;background:#02030a;overflow:hidden;touch-action:manipulation;-webkit-user-select:none;user-select:none}
+canvas{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);display:block}
+#s{position:fixed;inset:0;display:grid;place-items:center;background:#02030a;z-index:5;transition:opacity .5s}
+#s.h{opacity:0;pointer-events:none}
+#b{width:124px;height:124px;border-radius:50%;border:2px solid rgba(255,255,255,.45);background:rgba(120,160,255,.08);color:#fff;font:700 15px system-ui,sans-serif;letter-spacing:.22em}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="s"><button id="b">TAP</button></div>
+<script>
+(() => {
+'use strict';
+/* ============ SETTINGS ============ */
+const START = 50, MULT = 1.1, TARGET = 1e9;   // TARGET: 1e9 km/h = 92.7% of light. Use 1079252849 for exact light speed.
+const TOP = 'PART 2: CAN IT REACH 1 BILLION? 😱', END1 = 'SPEED OF LIGHT', END2 = 'SURPASSED!';
+const V_MIN = 720, V_MAX = 3200;               // on-screen ball speed (px/s): capped so the eye can follow it
+/* ================================== */
+const W = 1080, H = 1920, CX = 540, CY = 960, R = 440, BR = 24, TAU = Math.PI * 2, LOGR = Math.log(TARGET / START);
+const FF = '"Avenir Next","Helvetica Neue",Inter,system-ui,Arial,sans-serif';
+const c = document.getElementById('c'), x = c.getContext('2d'); let K = 1, bg, mand;
+const cl = (v, a, b) => Math.min(b, Math.max(a, v)), sm = v => { v = cl(v, 0, 1); return v * v * (3 - 2 * v); }, rnd = (a, b) => a + Math.random() * (b - a);
+const STOPS = [[0, [47, 123, 255]], [.25, [45, 255, 138]], [.5, [255, 224, 58]], [.75, [255, 59, 48]], [.97, [255, 255, 255]]];
+function col(q) { q = cl(q, 0, 1); for (let i = 1; i < STOPS.length; i++) if (q <= STOPS[i][0] || i === STOPS.length - 1) { const a = STOPS[i - 1], b = STOPS[i], f = cl((q - a[0]) / (b[0] - a[0]), 0, 1); return a[1].map((v, k) => Math.round(v + (b[1][k] - v) * f)); } }
+const rgba = (k, a) => `rgba(${k[0]},${k[1]},${k[2]},${a})`;
+
+/* ---------- layout + cached background (cheap 60 FPS) ---------- */
+function layout() {
+  const v = window.visualViewport, vw = v ? v.width : innerWidth, vh = v ? v.height : innerHeight, s = Math.min(vw / W, vh / H), d = Math.min(devicePixelRatio || 1, 2);
+  c.style.width = W * s + 'px'; c.style.height = H * s + 'px'; c.width = Math.round(W * s * d); c.height = Math.round(H * s * d); K = c.width / W;
+  bg = document.createElement('canvas'); bg.width = c.width; bg.height = c.height; const g = bg.getContext('2d'); g.scale(K, K);
+  const gr = g.createRadialGradient(CX, CY, 100, CX, CY, 1100); gr.addColorStop(0, '#0b1030'); gr.addColorStop(1, '#02030a'); g.fillStyle = gr; g.fillRect(0, 0, W, H);
+  for (let i = 0; i < 170; i++) { g.globalAlpha = .12 + Math.random() * .5; g.fillStyle = '#fff'; g.beginPath(); g.arc(Math.random() * W, Math.random() * H, Math.random() * 1.6 + .3, 0, TAU); g.fill(); }
+}
+addEventListener('resize', layout);
+
+/* ---------- state ---------- */
+const CAP = 6000, TX = new Float32Array(CAP), TY = new Float32Array(CAP), TT = new Float32Array(CAP), TQ = new Float32Array(CAP);
+let ph = 'idle', speed, disp, ts, gt, bx, by, dx, dy, shake, pulse, pa, tb, idx, th, tc, rt = 0, last = 0, prog = 0;
+function reset() { speed = disp = START; ts = 1; gt = 0; bx = -190; by = 90; const a = rnd(0, TAU); dx = Math.cos(a); dy = Math.sin(a); shake = 0; pulse = 0; pa = 0; tb = 0; idx = 2; th = 0; tc = 0; ph = 'run'; prog = 0; if (ac) calm(); }
+function push(t, q) { TX[th] = bx; TY[th] = by; TT[th] = t; TQ[th] = q; th = (th + 1) % CAP; tc = Math.min(tc + 1, CAP); }
+function hit(nx, ny) {
+  if (ph === 'run') { speed *= MULT; if (speed >= TARGET) { speed = TARGET; boom(); } else note(nx); }
+  shake = Math.max(shake, 12 + 40 * prog); pulse = 1; pa = Math.atan2(ny, nx);
+}
+function step(dt, t0) {
+  const v = V_MIN + (V_MAX - V_MIN) * Math.pow(prog, .7), d = v * dt, n = Math.max(1, Math.ceil(d / 9)), sd = d / n, m = R - BR;
+  for (let i = 0; i < n; i++) { bx += dx * sd; by += dy * sd; const l = Math.hypot(bx, by); if (l > m) { const nx = bx / l, ny = by / l, dp = dx * nx + dy * ny; dx -= 2 * dp * nx; dy -= 2 * dp * ny; bx = nx * m; by = ny * m; hit(nx, ny); } push(t0 + dt * (i + 1) / n, prog); }
+}
+
+/* ---------- audio (soft ASMR, no harsh sounds) ---------- */
+let ac, mg, rv, nbuf, o1, o2, o3, subG, lfo, lfoG, nzF, nzG;
+const PENT = [0, 2, 4, 7, 9];
+function out(n, wet) { n.connect(mg); if (wet) { const g = ac.createGain(); g.gain.value = wet; n.connect(g); g.connect(rv); } }
+function initAudio() {
+  ac = new (window.AudioContext || window.webkitAudioContext)(); try { navigator.audioSession.type = 'playback'; } catch (e) {}
+  const cp = ac.createDynamicsCompressor(); cp.threshold.value = -18; cp.ratio.value = 4; mg = ac.createGain(); mg.gain.value = .85; mg.connect(cp); cp.connect(ac.destination);
+  const L = (ac.sampleRate * 2.8) | 0, ir = ac.createBuffer(2, L, ac.sampleRate); for (let k = 0; k < 2; k++) { const d = ir.getChannelData(k); for (let i = 0; i < L; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / L, 3); }
+  rv = ac.createConvolver(); rv.buffer = ir; rv.connect(mg);
+  nbuf = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate); const nd = nbuf.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+  subG = ac.createGain(); subG.gain.value = 0; subG.connect(mg);
+  o1 = ac.createOscillator(); o2 = ac.createOscillator(); o3 = ac.createOscillator(); o1.type = o2.type = 'sine'; o3.type = 'triangle'; o1.frequency.value = 38; o2.frequency.value = 38.7; o3.frequency.value = 76;
+  const g3 = ac.createGain(); g3.gain.value = .45; const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 420; o3.connect(g3); g3.connect(lp); lp.connect(subG); o1.connect(subG); o2.connect(subG);
+  lfo = ac.createOscillator(); lfoG = ac.createGain(); lfo.frequency.value = 2.5; lfoG.gain.value = 0; lfo.connect(lfoG); lfoG.connect(subG.gain);
+  const ns = ac.createBufferSource(); ns.buffer = nbuf; ns.loop = true; nzF = ac.createBiquadFilter(); nzF.type = 'bandpass'; nzF.Q.value = .7; nzF.frequency.value = 300; nzG = ac.createGain(); nzG.gain.value = 0; ns.connect(nzF); nzF.connect(nzG); out(nzG, .3);
+  [o1, o2, o3, lfo, ns].forEach(o => o.start());
+}
+function calm() { const n = ac.currentTime; subG.gain.cancelScheduledValues(n); subG.gain.setTargetAtTime(.1, n, .3); }
+function hum() { const n = ac.currentTime, p = prog, f = 38 + 30 * Math.pow(p, 1.5), L = .1 + .36 * Math.pow(p, 1.2);
+  o1.frequency.setTargetAtTime(f, n, .1); o2.frequency.setTargetAtTime(f + .7 + 2 * p, n, .1); o3.frequency.setTargetAtTime(f * 2, n, .1); subG.gain.setTargetAtTime(L, n, .15);
+  lfo.frequency.setTargetAtTime(2.5 + 11 * p, n, .2); lfoG.gain.setTargetAtTime(L * (.08 + .55 * Math.pow(p, 1.5)), n, .2);
+  nzF.frequency.setTargetAtTime(250 + 3500 * Math.pow(p, 1.3), n, .2); nzG.gain.setTargetAtTime(.05 * Math.pow(p, 1.4), n, .2); }
+function note(nx) {
+  if (!ac) return; const lo = Math.floor(prog * 5); idx = cl(idx + [-2, -1, 1, 1, 2, 3][(Math.random() * 6) | 0], lo, lo + 9);
+  const f = 261.63 * Math.pow(2, (Math.floor(idx / 5) * 12 + PENT[idx % 5]) / 12), n = ac.currentTime, v = ac.createGain(), lp = ac.createBiquadFilter(), pn = ac.createStereoPanner ? ac.createStereoPanner() : null;
+  lp.type = 'lowpass'; lp.frequency.value = 2800; v.gain.setValueAtTime(0, n); v.gain.linearRampToValueAtTime(.2 - .08 * prog, n + .012); v.gain.exponentialRampToValueAtTime(.0001, n + 1.1);
+  [[f, 'sine', 1], [f * 2, 'triangle', .14]].forEach(([fr, ty, gv]) => { const o = ac.createOscillator(), g = ac.createGain(); o.type = ty; o.frequency.value = fr; g.gain.value = gv; o.connect(g); g.connect(lp); o.start(n); o.stop(n + 1.2); });
+  lp.connect(v); if (pn) { pn.pan.value = cl(nx, -1, 1) * .7; v.connect(pn); out(pn, .45); } else out(v, .45);
+  const t = ac.createOscillator(), tg = ac.createGain(); t.frequency.setValueAtTime(95, n); t.frequency.exponentialRampToValueAtTime(55, n + .2); tg.gain.setValueAtTime(0, n); tg.gain.linearRampToValueAtTime(.1, n + .01); tg.gain.exponentialRampToValueAtTime(.0001, n + .25); t.connect(tg); out(tg); t.start(n); t.stop(n + .3);
+}
+function whoosh() {
+  const n = ac.currentTime; subG.gain.cancelScheduledValues(n); subG.gain.setTargetAtTime(0, n, .15);
+  const s = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain(); s.buffer = nbuf; s.loop = true; f.type = 'bandpass'; f.Q.value = .8; f.frequency.setValueAtTime(200, n); f.frequency.exponentialRampToValueAtTime(5200, n + 2.4);
+  g.gain.setValueAtTime(0, n); g.gain.linearRampToValueAtTime(.38, n + .8); g.gain.exponentialRampToValueAtTime(.0001, n + 3.2); s.connect(f); f.connect(g); out(g, .5); s.start(n); s.stop(n + 3.3);
+  const o = ac.createOscillator(), og = ac.createGain(); o.frequency.setValueAtTime(110, n); o.frequency.exponentialRampToValueAtTime(1100, n + 2.2); og.gain.setValueAtTime(0, n); og.gain.linearRampToValueAtTime(.12, n + .9); og.gain.exponentialRampToValueAtTime(.0001, n + 3.4); o.connect(og); out(og, .6); o.start(n); o.stop(n + 3.5);
+  const b = ac.createOscillator(), bg2 = ac.createGain(); b.frequency.value = 46; bg2.gain.setValueAtTime(0, n + 1); bg2.gain.linearRampToValueAtTime(.4, n + 1.6); bg2.gain.exponentialRampToValueAtTime(.0001, n + 6); b.connect(bg2); out(bg2); b.start(n + 1); b.stop(n + 6.1);
+  [130.8, 196, 293.7, 440, 659.3].forEach((fr, i) => { const q = ac.createOscillator(), qg = ac.createGain(), t = n + 1.5 + i * .12; q.frequency.value = fr; qg.gain.setValueAtTime(0, t); qg.gain.linearRampToValueAtTime(.055, t + .5); qg.gain.exponentialRampToValueAtTime(.0001, t + 5); q.connect(qg); out(qg, .7); q.start(t); q.stop(t + 5.1); });
+}
+
+/* ---------- visuals ---------- */
+function trail(tn) {
+  const T = .5 + 7 * Math.pow(prog, 1.1), w = 5 + 19 * prog, B = 22; let i = th, cb = -1, ppx = 0, ppy = 0, cq = 0;
+  x.globalCompositeOperation = 'lighter'; x.lineCap = x.lineJoin = 'round';
+  const fl = () => { if (cb < 0) return; const f = 1 - (cb + .5) / B, a = Math.pow(f, 1.5), k = col(cq); x.strokeStyle = rgba(k, .13 * a); x.lineWidth = w * 3.2 * f + 4; x.stroke(); x.strokeStyle = rgba(k, .85 * a); x.lineWidth = w * (.3 + .7 * f); x.stroke(); };
+  for (let n = 0; n < tc; n++) { i = (i - 1 + CAP) % CAP; const age = (tn - TT[i]) / T; if (age > 1) break; const bb = Math.min(B - 1, (age * B) | 0);
+    if (bb !== cb) { fl(); x.beginPath(); x.moveTo(cb >= 0 ? ppx : TX[i], cb >= 0 ? ppy : TY[i]); cb = bb; cq = TQ[i]; } x.lineTo(TX[i], TY[i]); ppx = TX[i]; ppy = TY[i]; }
+  fl(); x.globalCompositeOperation = 'source-over';
+}
+function ball(gl) {
+  const k = col(prog), r = BR * (1 + .25 * prog), gr = r * 5 * gl; x.globalCompositeOperation = 'lighter'; const g = x.createRadialGradient(bx, by, 0, bx, by, gr); g.addColorStop(0, rgba(k, .55)); g.addColorStop(1, rgba(k, 0)); x.fillStyle = g; x.beginPath(); x.arc(bx, by, gr, 0, TAU); x.fill();
+  x.globalCompositeOperation = 'source-over'; x.fillStyle = rgba(k, 1); x.beginPath(); x.arc(bx, by, r, 0, TAU); x.fill(); x.fillStyle = 'rgba(255,255,255,.92)'; x.beginPath(); x.arc(bx, by, r * .55, 0, TAU); x.fill();
+}
+function txt(s, px, py, sz, a, mw) { x.save(); x.font = `800 ${sz}px ${FF}`; x.textAlign = 'center'; x.textBaseline = 'middle'; let k = 1; const w = x.measureText(s).width; if (mw && w > mw) k = mw / w; x.translate(px, py); x.scale(k, k); x.globalAlpha = a; x.lineJoin = 'round'; x.lineWidth = 12; x.strokeStyle = 'rgba(0,0,10,.45)'; x.strokeText(s, 0, 0); x.fillStyle = '#fff'; x.fillText(s, 0, 0); x.restore(); }
+function mkMand() { const s = 1000, m = document.createElement('canvas'); m.width = m.height = s; const g = m.getContext('2d'); g.translate(s / 2, s / 2); g.globalCompositeOperation = 'lighter'; g.lineWidth = 2.2;
+  for (let L = 0; L < 6; L++) { const N = 8 + L * 2, r0 = 50 + L * 60; g.strokeStyle = `hsla(${(200 + L * 32) % 360},90%,72%,.75)`;
+    for (let i = 0; i < N; i++) { g.save(); g.rotate(TAU * i / N); g.beginPath(); g.moveTo(0, -r0); g.quadraticCurveTo(r0 * .42, -r0 - 55, 0, -r0 - 110); g.quadraticCurveTo(-r0 * .42, -r0 - 55, 0, -r0); g.stroke(); g.beginPath(); g.arc(0, -r0 - 130, 3 + L, 0, TAU); g.stroke(); g.restore(); }
+    g.beginPath(); g.arc(0, 0, r0, 0, TAU); g.stroke(); } return m; }
+function boom() { ph = 'boom'; tb = 0; if (ac) whoosh(); }
+const RB = { x: CX - 190, y: 1260, w: 380, h: 100 };
+
+function frame(now) {
+  requestAnimationFrame(frame); const rd = Math.min(.033, (now - last) / 1000 || 0); last = now; rt += rd;
+  x.setTransform(1, 0, 0, 1, 0, 0); x.drawImage(bg, 0, 0); x.setTransform(K, 0, 0, K, 0, 0);
+  if (ph !== 'idle') {
+    if (ph !== 'run') { tb += rd; ts += (.12 - ts) * (1 - Math.exp(-rd * 6)); }
+    const dt = rd * ts, t0 = gt; gt += dt;
+    if (ph === 'run') { disp = Math.exp(Math.log(disp) + (Math.log(speed) - Math.log(disp)) * (1 - Math.exp(-rd * 9))); prog = cl(Math.log(disp / START) / LOGR, 0, 1); if (ac) hum(); } else { disp = TARGET; prog = 1; }
+    step(dt, t0); shake *= Math.exp(-rd * 9); pulse *= Math.exp(-rd * 7);
+  }
+  txt(TOP, W / 2, 170, 50, .95, 990);
+  x.save(); x.translate(CX + (Math.random() - .5) * 2 * shake, CY + (Math.random() - .5) * 2 * shake); x.rotate((Math.random() - .5) * shake * .0008);
+  const k = col(prog); x.fillStyle = 'rgba(255,255,255,.015)'; x.beginPath(); x.arc(0, 0, R, 0, TAU); x.fill(); x.strokeStyle = 'rgba(255,255,255,.2)'; x.lineWidth = 5; x.stroke();
+  if (pulse > .02) { x.strokeStyle = rgba(k, pulse); x.lineWidth = 10; x.beginPath(); x.arc(0, 0, R, pa - .4, pa + .4); x.stroke(); }
+  if (ph !== 'idle') {
+    trail(gt);
+    const fade = ph === 'run' ? 1 : 1 - sm((tb - 1.2) / 1.2);
+    if (fade > 0) { const g = x.createRadialGradient(0, 0, 0, 0, 0, 400); g.addColorStop(0, 'rgba(2,3,12,.55)'); g.addColorStop(1, 'rgba(2,3,12,0)'); x.fillStyle = g; x.fillRect(-400, -400, 800, 800);
+      const s = Math.round(disp).toLocaleString('en-US'), sz = Math.min(300, 860 / (s.length * .62)); txt('SPEED:', 0, -sz * .55 - 38, 54, .85 * fade); txt(s, 0, 0, sz, fade, 880); txt('KM/H', 0, sz * .55 + 40, 64, .85 * fade); }
+    ball(ph === 'run' ? 1 : 1 + tb * 2.5);
+  }
+  x.restore();
+  if (ph === 'boom' || ph === 'end') {
+    for (let j = 0; j < 3; j++) { const r = (tb - j * .25) * 700; if (r > 0 && r < 1500) { x.strokeStyle = 'rgba(255,255,255,' + (1 - r / 1500) * .8 + ')'; x.lineWidth = 6; x.beginPath(); x.arc(CX, CY, r, 0, TAU); x.stroke(); } }
+    if (tb > 2) { if (!mand) mand = mkMand(); const a = sm((tb - 2) / 1.4), s = 1.4 + 1.1 * sm((tb - 2) / 3) + .03 * Math.sin(rt * 2);
+      x.globalCompositeOperation = 'lighter'; x.save(); x.translate(CX, CY); x.globalAlpha = a * .85; x.rotate(rt * .12); x.scale(s, s); x.drawImage(mand, -500, -500); x.restore();
+      x.save(); x.translate(CX, CY); x.globalAlpha = a * .5; x.rotate(-rt * .09 + .2); x.scale(s * .75, s * .75); x.drawImage(mand, -500, -500); x.restore(); x.globalCompositeOperation = 'source-over'; x.globalAlpha = 1; }
+    const fa = tb < 2.8 ? sm((tb - 1.2) / 1.6) : Math.max(0, 1 - (tb - 2.8) / 1.1); if (fa > 0) { x.globalAlpha = fa; x.fillStyle = '#fff'; x.fillRect(0, 0, W, H); x.globalAlpha = 1; }
+    if (tb > 3.6) { ph = 'end'; const a = sm((tb - 3.6) / 1.2), g = x.createRadialGradient(CX, 900, 0, CX, 900, 520); g.addColorStop(0, 'rgba(2,3,12,.6)'); g.addColorStop(1, 'rgba(2,3,12,0)'); x.globalAlpha = a; x.fillStyle = g; x.fillRect(0, 380, W, 1040); x.globalAlpha = 1;
+      txt(END1, CX, 860, 112, a, 940); txt(END2, CX, 990, 124, a, 940);
+      const b = sm((tb - 4.6) / .8); x.globalAlpha = b; x.fillStyle = 'rgba(255,255,255,.12)'; x.strokeStyle = 'rgba(255,255,255,.7)'; x.lineWidth = 3; x.beginPath(); x.roundRect ? x.roundRect(RB.x, RB.y, RB.w, RB.h, 50) : x.rect(RB.x, RB.y, RB.w, RB.h); x.fill(); x.stroke(); x.globalAlpha = 1; txt('REPLAY', CX, RB.y + RB.h / 2, 44, b); }
+  }
+}
+c.addEventListener('pointerdown', e => { if (ph !== 'end' || tb < 5) return; const r = c.getBoundingClientRect(), px = (e.clientX - r.left) / r.width * W, py = (e.clientY - r.top) / r.height * H; if (px > RB.x && px < RB.x + RB.w && py > RB.y && py < RB.y + RB.h) reset(); });
+document.getElementById('b').addEventListener('click', () => { try { initAudio(); } catch (e) { console.error(e); } document.getElementById('s').classList.add('h'); reset(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden && ac && ac.state === 'suspended') ac.resume(); });
+layout(); requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
