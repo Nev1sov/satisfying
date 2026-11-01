@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#05080f">
+<title>Giant Dominoes</title>
+<style>
+html,body{margin:0;height:100%;background:#05080f;overflow:hidden;touch-action:manipulation;-webkit-user-select:none;user-select:none;font-family:"Avenir Next","Helvetica Neue",Inter,system-ui,Arial,sans-serif}
+canvas{position:fixed;inset:0;display:block}
+#vig{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at 50% 48%,rgba(0,0,0,0) 52%,rgba(2,4,12,.62) 100%)}
+#hud{position:fixed;left:50%;top:50%;width:1080px;height:1920px;margin:-960px 0 0 -540px;pointer-events:none;color:#fff;text-align:center;transform-origin:50% 50%}
+.t{position:absolute;left:0;width:100%;font-weight:800;font-size:72px;line-height:1;white-space:nowrap;transition:opacity .25s}
+#t1{top:215px;color:#fff;text-shadow:0 0 14px rgba(255,255,255,.14),0 3px 0 rgba(0,8,28,.35)}
+#t2{top:310px;color:#9ccbff;text-shadow:0 0 14px rgba(156,203,255,.2),0 3px 0 rgba(0,8,28,.35)}
+#num{position:absolute;left:0;width:100%;top:1215px;font-weight:800;font-size:170px;line-height:1;color:rgba(110,225,215,.84);text-shadow:0 0 22px rgba(110,225,215,.14);white-space:nowrap}
+#unit{position:absolute;left:0;width:100%;top:1405px;font-weight:700;font-size:34px;color:#9aa6bd;opacity:.85;white-space:nowrap}
+#fact{position:absolute;left:0;width:100%;top:1470px;font-weight:700;font-size:34px;color:#d3dcef;opacity:.95;white-space:nowrap;transition:opacity .3s}
+#barw{position:absolute;left:190px;top:1535px;width:700px;height:6px;background:rgba(255,255,255,.14);border-radius:3px}
+#bar{height:100%;width:0;background:rgba(110,225,215,.9);border-radius:3px}
+#s{position:fixed;inset:0;display:grid;place-items:center;background:#05080f;z-index:5;transition:opacity .5s}
+#s.h{opacity:0;pointer-events:none}
+#b{width:124px;height:124px;border-radius:50%;border:2px solid rgba(255,255,255,.45);background:rgba(120,160,255,.08);color:#fff;font:700 15px system-ui,sans-serif;letter-spacing:.22em}
+</style>
+</head>
+<body>
+<div id="vig"></div>
+<div id="hud"><div id="t1" class="t"></div><div id="t2" class="t"></div><div id="num"></div><div id="unit"></div><div id="fact"></div><div id="barw"><div id="bar"></div></div></div>
+<div id="s"><button id="b">TAP</button></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+if (!window.THREE) { $('s').innerHTML = '<p style="color:#fff;font:16px system-ui;padding:24px;text-align:center">Three.js failed to load.<br>Check your internet connection and reload.</p>'; return; }
+/* ============ SETTINGS ============ */
+const N = 31, H0 = .05, G = 1.5, TH = .156, WD = .5, GAP = .6, T0 = 1.5, D0 = .18;   // 31 dominoes, 5 cm start, x1.5 each
+/* ================================== */
+const cl = (v, a, b) => Math.min(b, Math.max(a, v)), sm = v => { v = cl(v, 0, 1); return v * v * (3 - 2 * v); };
+/* ---------- domino math (real physics geometry) ---------- */
+const PHI = Math.asin(GAP), H = [], ZF = [], TS = [], DD = [], D2 = [], PR = [];
+for (let i = 0; i < N; i++) { H[i] = H0 * Math.pow(G, i); DD[i] = D0 * Math.pow(G, .22 * i); ZF[i] = i ? ZF[i - 1] + GAP * H[i - 1] + TH * H[i] : 0; TS[i] = i ? TS[i - 1] + DD[i - 1] : T0; PR[i] = i < N - 1 ? Math.acos(TH * G / (GAP + TH * G)) : Math.PI / 2; D2[i] = 2 * (PR[i] - PHI) * DD[i] / (PHI * 1.7); }
+const LAND = TS[N - 1] + DD[N - 1] + D2[N - 1], OUT = LAND + .9;
+let moonN = 0; while (H0 * Math.pow(G, moonN) < 3.844e8) moonN++;       // first domino taller than the Moon distance
+function phi(i, t) { const tau = t - TS[i]; if (tau <= 0) return 0; if (tau < DD[i]) return PHI * Math.pow(tau / DD[i], 1.7); const s = (tau - DD[i]) / D2[i]; return s >= 1 ? PR[i] : PHI + (PR[i] - PHI) * (1 - (1 - s) * (1 - s)); }
+
+/* ---------- renderer / scene ---------- */
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2)); renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.1; renderer.outputEncoding = THREE.sRGBEncoding;
+document.body.insertBefore(renderer.domElement, document.body.firstChild);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x05080f); scene.fog = new THREE.FogExp2(0x05080f, .045);
+const camera = new THREE.PerspectiveCamera(50, 1, .02, 20000);
+function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); $('hud').style.transform = `scale(${Math.min(w / 1080, h / 1920)})`; }
+addEventListener('resize', resize); resize();
+/* environment (softboxes) for glossy reflections */
+(function () { const cv = document.createElement('canvas'); cv.width = 1024; cv.height = 512; const g = cv.getContext('2d'), gr = g.createLinearGradient(0, 0, 0, 512); gr.addColorStop(0, '#1b2a4a'); gr.addColorStop(.5, '#0b1122'); gr.addColorStop(1, '#04060c'); g.fillStyle = gr; g.fillRect(0, 0, 1024, 512);
+  g.shadowBlur = 50; for (const [x, y, w, h, c] of [[120, 110, 280, 100, '#ffe6bd'], [640, 140, 220, 80, '#9fd4ff'], [440, 50, 150, 44, '#ffffff'], [860, 90, 120, 50, '#ffc8a0']]) { g.shadowColor = c; g.fillStyle = c; g.fillRect(x, y, w, h); }
+  const tex = new THREE.CanvasTexture(cv); tex.mapping = THREE.EquirectangularReflectionMapping; tex.encoding = THREE.sRGBEncoding; const pm = new THREE.PMREMGenerator(renderer); scene.environment = pm.fromEquirectangular(tex).texture; })();
+/* lights */
+const key = new THREE.DirectionalLight(0xfff0dd, 2.6); key.position.set(-6, 10, -3); key.castShadow = true; key.shadow.mapSize.set(2048, 2048); Object.assign(key.shadow.camera, { left: -16, right: 16, top: 16, bottom: -16, near: 1, far: 60 }); key.shadow.bias = -.0005; key.shadow.normalBias = .03; scene.add(key, key.target);
+const rim = new THREE.DirectionalLight(0x6fa8ff, 1.5); rim.position.set(3, 3, 10); scene.add(rim, new THREE.HemisphereLight(0x9ab4ff, 0x0a0c14, .5));
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000), new THREE.MeshStandardMaterial({ color: 0x0b101c, roughness: .24, metalness: .85, envMapIntensity: 1.3 })); floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
+const world = new THREE.Group(); scene.add(world);
+/* dust */
+const dg = new THREE.BufferGeometry(), dp = new Float32Array(360 * 3); for (let i = 0; i < dp.length; i += 3) { dp[i] = (Math.random() - .5) * 18; dp[i + 1] = Math.random() * 7; dp[i + 2] = (Math.random() - .5) * 18; } dg.setAttribute('position', new THREE.BufferAttribute(dp, 3));
+const dust = new THREE.Points(dg, new THREE.PointsMaterial({ color: 0x9fc4ff, size: .045, transparent: true, opacity: .5, depthWrite: false, blending: THREE.AdditiveBlending })); scene.add(dust);
+
+/* ---------- dominoes ---------- */
+const PIPS = [[], [4], [0, 8], [0, 4, 8], [0, 2, 6, 8], [0, 2, 4, 6, 8], [0, 2, 3, 5, 6, 8]];
+function faceTex(a, b) {
+  const cv = document.createElement('canvas'); cv.width = 256; cv.height = 512; const g = cv.getContext('2d'), gr = g.createLinearGradient(0, 0, 256, 512); gr.addColorStop(0, '#fbf6ea'); gr.addColorStop(1, '#e6dcc4'); g.fillStyle = gr; g.fillRect(0, 0, 256, 512);
+  g.strokeStyle = 'rgba(80,60,30,.35)'; g.lineWidth = 6; g.strokeRect(5, 5, 246, 502); g.strokeStyle = '#b08a3e'; g.lineWidth = 7; g.beginPath(); g.moveTo(34, 256); g.lineTo(222, 256); g.stroke();
+  [[a, 0], [b, 256]].forEach(([n, y0]) => { for (const k of PIPS[n]) { const cx = 64 + (k % 3) * 64, cy = y0 + 64 + Math.floor(k / 3) * 64, rg = g.createRadialGradient(cx - 5, cy - 5, 2, cx, cy, 24); rg.addColorStop(0, '#444'); rg.addColorStop(1, '#0a0a0e'); g.fillStyle = rg; g.beginPath(); g.arc(cx, cy, 23, 0, 6.2832); g.fill(); } });
+  const t = new THREE.CanvasTexture(cv); t.encoding = THREE.sRGBEncoding; t.anisotropy = 8; return t;
+}
+const TEX = [[6, 3], [5, 2], [4, 6], [1, 5], [3, 4], [2, 6]].map(p => faceTex(p[0], p[1])), BOX = new THREE.BoxGeometry(WD, 1, TH), DOM = [], FACE = [];
+for (let i = 0; i < N; i++) {
+  const col = new THREE.Color().setHSL(.58 - .5 * (i / (N - 1)), .4, .86), side = new THREE.MeshStandardMaterial({ color: col, roughness: .42, metalness: .05 }), face = new THREE.MeshStandardMaterial({ color: col, map: TEX[i % 6], roughness: .36, metalness: .05, emissive: new THREE.Color(0x2a9fff), emissiveIntensity: 0 });
+  const m = new THREE.Mesh(BOX, [side, side, side, side, face, face]); m.position.set(0, .5, -TH / 2); m.castShadow = true; m.receiveShadow = true;
+  const g = new THREE.Group(); g.add(m); g.scale.setScalar(H[i]); g.position.z = ZF[i]; world.add(g); DOM.push(g); FACE.push(face);
+}
+/* marble that starts the chain */
+const MR = .42 * H0, marble = new THREE.Mesh(new THREE.SphereGeometry(MR, 32, 24), new THREE.MeshStandardMaterial({ color: 0xcfd8ff, metalness: 1, roughness: .1 })); marble.castShadow = true; world.add(marble);
+const MZ0 = ZF[0] - TH * H0 - 2.6 * H0, MZ1 = ZF[0] - TH * H0 - MR;
+/* impact rings */
+const RINGS = Array.from({ length: 8 }, () => { const m = new THREE.Mesh(new THREE.RingGeometry(.92, 1, 64), new THREE.MeshBasicMaterial({ color: 0x8fe8ff, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, fog: false })); m.rotation.x = -Math.PI / 2; m.visible = false; world.add(m); return { m, t: -9, h: 1, z: 0 }; }); let ringI = 0;
+
+/* ---------- ghost landmarks (real heights) ---------- */
+function ghost(parts) { const g = new THREE.Group(), mats = []; for (const [geo, x, y, z, ry] of parts) { const fill = new THREE.MeshBasicMaterial({ color: 0x6fe6ff, transparent: true, opacity: 0, depthWrite: false, fog: false }), line = new THREE.LineBasicMaterial({ color: 0xaef4ff, transparent: true, opacity: 0, fog: false }), m = new THREE.Mesh(geo, fill), l = new THREE.LineSegments(new THREE.EdgesGeometry(geo, 15), line); for (const o of [m, l]) { o.position.set(x, y, z); o.rotation.y = ry || 0; g.add(o); } mats.push([fill, line]); } return { g, mats }; }
+const Cy = (a, b, h, s) => new THREE.CylinderGeometry(a, b, h, s), PI = Math.PI;
+const LMK = [
+  { i: 9, hw: .35, o: ghost([[Cy(.09, .09, .85, 12), -.1, .425, 0], [Cy(.09, .09, .85, 12), .1, .425, 0], [Cy(.2, .17, .6, 14), 0, 1.15, 0], [Cy(.05, .05, .62, 8), -.3, 1.15, 0], [Cy(.05, .05, .62, 8), .3, 1.15, 0], [new THREE.SphereGeometry(.13, 16, 12), 0, 1.62, 0]]) },
+  { i: 20, hw: 163, o: ghost([[new THREE.ConeGeometry(162.6, 139, 4), 0, 69.5, 0, PI / 4]]) },
+  { i: 22, hw: 62, o: ghost([[Cy(28, 62, 57, 4), 0, 28.5, 0, PI / 4], [Cy(20, 28, 58, 4), 0, 86, 0, PI / 4], [Cy(6, 17, 161, 4), 0, 195.5, 0, PI / 4], [Cy(1, 5, 54, 4), 0, 303, 0, PI / 4]]) },
+  { i: 24, hw: 45, o: ghost([[Cy(36, 45, 200, 6), 0, 100, 0], [Cy(28, 36, 150, 6), 0, 275, 0], [Cy(21, 28, 130, 6), 0, 415, 0], [Cy(15, 21, 120, 6), 0, 540, 0], [Cy(9, 15, 100, 6), 0, 650, 0], [Cy(3, 9, 80, 6), 0, 740, 0], [Cy(.3, 3, 48, 6), 0, 804, 0]]) },
+  { i: 30, hw: 6500, o: ghost([[new THREE.ConeGeometry(6500, 8849, 7, 1), 0, 4424.5, 0]]) }];
+for (const L of LMK) { L.o.g.position.set(-(L.hw + .55 * H[L.i]), 0, ZF[L.i]); world.add(L.o.g); }
+const CAPT = [[0, '1.5× BIGGER EVERY TIME ⚡'], [9, 'TALLER THAN YOU 🧍'], [13, 'AS TALL AS A 3-STORY BUILDING 🏠'], [20, 'TALLER THAN THE GREAT PYRAMID 🔺'], [22, 'TALLER THAN THE EIFFEL TOWER 🗼'], [24, 'TALLER THAN BURJ KHALIFA 🏙️'], [30, 'TALLER THAN MOUNT EVEREST 🏔️']];
+
+/* ---------- camera rig keyframes: [u, azimuth°, dist, height, lookY, fov] ---------- */
+const KEYS = [[-1, 20, 1.6, .22, .18, 44], [1, 55, 2.2, .35, .3, 46], [6, 70, 2.8, .6, .45, 50], [9, 60, 5, .9, .8, 52], [13, 80, 3.2, .8, .6, 52], [17, 90, 2.4, .8, .6, 56], [19.8, 55, 8.5, 1.8, .8, 52], [22, 60, 6.2, 1.8, 1, 50], [24, 62, 5.8, 1.8, 1, 50], [27, 85, 3.6, 1, .7, 54], [30, 55, 10.5, 3, 1.2, 50], [34, 35, 14, 5, 1.5, 48]];
+function rig(u) { const L = KEYS[KEYS.length - 1]; if (u >= L[0]) return L.slice(1); let a = KEYS[0], b = KEYS[1]; for (let k = 0; k < KEYS.length - 1; k++) if (u < KEYS[k + 1][0]) { a = KEYS[k]; b = KEYS[k + 1]; break; } const f = sm((u - a[0]) / (b[0] - a[0])); return a.slice(1).map((v, j) => v + (b[j + 1] - v) * f); }
+const hAt = u => u <= 0 ? H0 : u >= N - 1 ? H[N - 1] : H0 * Math.pow(G, u);
+function zAt(u) { if (u <= 0) return ZF[0] + u * H0; if (u >= N - 1) return ZF[N - 1] + cl((u - (N - 1)) / 3, 0, 1) * .6 * H[N - 1]; const k = Math.floor(u), f = u - k; return ZF[k] + f * (ZF[k + 1] - ZF[k]); }
+
+/* ---------- audio ---------- */
+let ac, mg, rv, nb, padBus, rzG, rzF;
+const CH = [[110, 164.8, 220, 261.6], [87.3, 130.8, 174.6, 220], [130.8, 196, 261.6, 329.6], [98, 146.8, 196, 246.9]];
+function out(n, w) { n.connect(mg); if (w) { const g = ac.createGain(); g.gain.value = w; n.connect(g); g.connect(rv); } }
+function tone(f, f2, d, g, ty = 'sine', w = .3, att = .004) { const n = ac.currentTime, o = ac.createOscillator(), v = ac.createGain(); o.type = ty; o.frequency.setValueAtTime(f, n); o.frequency.exponentialRampToValueAtTime(Math.max(20, f2), n + d); v.gain.setValueAtTime(0, n); v.gain.linearRampToValueAtTime(g, n + att); v.gain.exponentialRampToValueAtTime(.0001, n + d); o.connect(v); out(v, w); o.start(n); o.stop(n + d + .02); }
+function nburst(d, f, q, g, w, ty = 'bandpass') { const n = ac.currentTime, s = ac.createBufferSource(), fl = ac.createBiquadFilter(), v = ac.createGain(); s.buffer = nb; fl.type = ty; fl.frequency.value = f; fl.Q.value = q; v.gain.setValueAtTime(g, n); v.gain.exponentialRampToValueAtTime(.0001, n + d); s.connect(fl); fl.connect(v); out(v, w); s.start(n, Math.random() * 1.5); s.stop(n + d + .02); }
+function pad(fs) { const n = ac.currentTime, v = ac.createGain(), lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 600; lp.Q.value = 2; v.gain.setValueAtTime(0, n); v.gain.linearRampToValueAtTime(.05, n + 3.5); v.gain.linearRampToValueAtTime(.0001, n + 10); lp.connect(v); v.connect(padBus); fs.forEach(f => [-7, 7].forEach(dt => { const o = ac.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; o.detune.value = dt; o.connect(lp); o.start(n); o.stop(n + 10.2); })); }
+function initAudio() {
+  ac = new (window.AudioContext || window.webkitAudioContext)(); try { navigator.audioSession.type = 'playback'; } catch (e) {}
+  const cp = ac.createDynamicsCompressor(); cp.threshold.value = -16; cp.ratio.value = 4; mg = ac.createGain(); mg.gain.value = .9; mg.connect(cp); cp.connect(ac.destination);
+  const L = (ac.sampleRate * 3.2) | 0, ir = ac.createBuffer(2, L, ac.sampleRate); for (let k = 0; k < 2; k++) { const d = ir.getChannelData(k); for (let i = 0; i < L; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / L, 2.8); } rv = ac.createConvolver(); rv.buffer = ir; rv.connect(mg);
+  nb = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate); const nd = nb.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+  padBus = ac.createGain(); padBus.gain.value = .8; out(padBus, .6);
+  const ro = ac.createOscillator(); ro.type = 'sawtooth'; ro.frequency.value = 55; rzF = ac.createBiquadFilter(); rzF.type = 'lowpass'; rzF.frequency.value = 150; rzG = ac.createGain(); rzG.gain.value = 0; ro.connect(rzF); rzF.connect(rzG); out(rzG, .4); ro.start();
+  let k = 0; (function a() { pad(CH[k++ % 4]); setTimeout(a, 7000); })();
+}
+function domSound(i) {
+  if (!ac) return; const q = i / (N - 1), a = Math.pow(1 - q, 1.5), f = 1050 * a + 46, wet = .06 + .6 * q;
+  nburst(.03 + .12 * q * q, 4800 * a + 170, 1.3, .55 - .2 * q, wet * .5); tone(f, f * .78, .06 + 2.4 * Math.pow(q, 1.4), .14 + .36 * q, 'sine', wet); tone(f * 2.01, f * 1.6, .04 + .3 * q, .05, 'triangle', wet);
+  if (q > .3) tone(90 - 45 * q, 30, .35 + 1.7 * q, .55 * q, 'sine', wet * .6); if (q > .45) nburst(.6 + 2.6 * q, 150, .7, .38 * q, .7, 'lowpass');
+  const k = Math.floor(i * .55), off = -(Math.floor(k / 5) * 12 + [0, 2, 5, 7, 9][k % 5]), fr = 880 * Math.pow(2, off / 12); tone(fr, fr, 1.6 + 1.6 * q, .05 + .04 * q, 'sine', .8, .01); tone(fr * 2, fr * 2, 1, .014, 'sine', .8, .01);
+}
+function finalBoom() { if (!ac) return; rzG.gain.setTargetAtTime(0, ac.currentTime, .05); tone(70, 22, 6, .9, 'sine', .5, .01); tone(44, 20, 5, .6, 'sawtooth', .3, .01); nburst(4, 200, .6, .8, .8, 'lowpass'); nburst(.4, 3000, 1, .5, .6); [110, 165, 220, 329.6, 440].forEach((f, i) => setTimeout(() => tone(f, f, 7, .06, 'sine', .8, .6), 1400 + i * 150)); }
+
+/* ---------- HUD ---------- */
+function fmtH(h) { if (h < 1) { const c = h * 100; return [c < 10 ? c.toFixed(1) : String(Math.round(c)), 'CENTIMETERS']; } if (h < 1000) return [h < 10 ? h.toFixed(1) : Math.round(h).toLocaleString('en-US'), 'METERS']; const k = h / 1000; return [k < 10 ? k.toFixed(2) : k < 100 ? k.toFixed(1) : Math.round(k).toLocaleString('en-US'), 'KILOMETERS']; }
+const sp = s => s.split('').join(' ');
+function setT(el, s) { if (el._v !== s) { el._v = s; el.textContent = s; if (el.className === 't' || el.id === 'fact') fitW(el); } }
+function fitW(el) { el.style.transform = ''; const w = el.scrollWidth; el.style.transform = w > 980 ? `scale(${980 / w})` : ''; }
+
+/* ---------- main loop ---------- */
+let ph = 'idle', t0 = 0, last = 0, uCam = -.6, shk = 0, evI = 0, evL = false;
+function frame(now) {
+  requestAnimationFrame(frame); if (ph === 'idle') return;
+  const t = Math.max(0, (now - t0) / 1000), dt = Math.min(.05, (now - last) / 1000 || .016); last = now;
+  for (let i = 0; i < N; i++) { DOM[i].rotation.x = phi(i, t); const f = Math.exp(-(t - TS[i]) * 5); FACE[i].emissiveIntensity = t >= TS[i] && f > .02 ? .9 * f : 0; }
+  const mp = cl((t - .05) / (T0 - .05), 0, 1); marble.position.set(0, MR, MZ0 + (MZ1 - MZ0) * mp); marble.rotation.x = (MZ1 - MZ0) * mp / MR;
+  while (evI < N && t >= TS[evI]) { const i = evI++; domSound(i); const q = i / (N - 1); shk = Math.max(shk, .004 + .06 * q * q); if (i >= 2) { const r = RINGS[ringI++ % 8]; r.t = t; r.h = H[i]; r.z = ZF[i]; r.m.visible = true; } }
+  if (!evL && t >= LAND) { evL = true; finalBoom(); shk = .12; const r = RINGS[ringI++ % 8]; r.t = t; r.h = H[N - 1] * 2.5; r.z = ZF[N - 1] + H[N - 1] * .6; r.m.visible = true; }
+  for (const r of RINGS) if (r.m.visible) { const a = (t - r.t) / 1.6; if (a > 1) { r.m.visible = false; continue; } r.m.position.set(0, r.h * .004, r.z); r.m.scale.setScalar(r.h * (.3 + 2.6 * Math.sqrt(a))); r.m.material.opacity = .55 * (1 - a) * (1 - a); }
+  /* camera follow */
+  let ut; if (t < T0) ut = -.6 + .6 * sm(t / T0); else { let k = 0; while (k < N - 1 && t >= TS[k + 1]) k++; ut = t >= LAND ? N - 1 + 3 * sm((t - LAND) / 4.5) : t >= TS[N - 1] ? N - 1 : k + cl((t - TS[k]) / DD[k], 0, 1); }
+  uCam += (ut - uCam) * (1 - Math.exp(-dt * 3.2));
+  const uF = uCam + .35, S = 1 / hAt(uF), Fz = zAt(uF); world.scale.setScalar(S); world.position.set(0, 0, -S * Fz);
+  const [az, d, y, ly, fov] = rig(uCam), A = az * Math.PI / 180; shk *= Math.exp(-dt * 3.4);
+  const dx = Math.sin(t * .7) * .06 * d, dy = Math.sin(t * .53) * .03 * d;
+  camera.position.set(d * Math.cos(A) + dx + (Math.random() - .5) * shk * 2, y + dy + (Math.random() - .5) * shk * 2, -d * Math.sin(A) + (Math.random() - .5) * shk * 2); camera.fov = fov; camera.updateProjectionMatrix(); camera.lookAt(0, ly, .25); camera.rotateZ(Math.sin(t * .3) * .018);
+  /* landmarks */
+  for (const L of LMK) { const a = sm((uCam - (L.i - 1.8)) / .8) * (1 - sm((uCam - (L.i + 1.6)) / .8)); L.o.g.visible = a > .01; for (const [f, l] of L.o.mats) { f.opacity = .08 * a; l.opacity = .85 * a; } }
+  /* dust + audio ambience */
+  const pp = dg.attributes.position.array; for (let i = 0; i < pp.length; i += 3) { pp[i + 1] += Math.sin(t + i) * .0015 + .002; if (pp[i + 1] > 7) pp[i + 1] = 0; } dg.attributes.position.needsUpdate = true;
+  if (ac) { const r = cl((t - TS[18]) / (LAND - TS[18]), 0, 1); if (t < LAND) { rzG.gain.setTargetAtTime(.07 * Math.pow(r, 1.5), ac.currentTime, .2); rzF.frequency.setTargetAtTime(150 + 2800 * r * r, ac.currentTime, .2); } padBus.gain.setTargetAtTime(.7 + .8 * cl(uCam / 30, 0, 1), ac.currentTime, .5); }
+  /* HUD */
+  const idx = cl(Math.round(uCam), 0, N - 1), [nv, un] = fmtH(t >= OUT ? H0 * Math.pow(G, moonN) : hAt(uCam)), hook = t < 3.8, out2 = t >= OUT;
+  const cap = CAPT.filter(c => c[0] <= idx).pop(), capOn = cap && (cap[0] === 0 || Math.abs(uCam - cap[0]) < 2.3 || (cap[0] === 30 && t < OUT));
+  setT($('t1'), out2 ? 'DOMINO #' + (moonN + 1) : hook ? 'EACH DOMINO IS 1.5× BIGGER' : 'DOMINO #' + (idx + 1)); setT($('t2'), out2 ? 'WOULD REACH THE MOON 🌙' : hook ? 'HOW BIG CAN IT GET? 😳' : '5 CM → 9.6 KM');
+  setT($('num'), nv); setT($('unit'), sp(un)); setT($('fact'), out2 ? 'REAL PHYSICS · WOULD YOU PUSH THE FIRST ONE? 👇' : capOn ? cap[1] : '1.5× BIGGER EVERY TIME ⚡'); $('bar').style.width = (100 * cl(t >= LAND ? 1 : uCam / (N - 1), 0, 1)) + '%';
+  renderer.render(scene, camera);
+}
+addEventListener('pointerdown', () => { if (ph === 'run' && (performance.now() - t0) / 1000 > OUT + 2) { t0 = performance.now(); evI = 0; evL = false; uCam = -.6; shk = 0; } });
+$('b').addEventListener('click', () => { $('b').textContent = '...'; try { initAudio(); } catch (e) { console.error(e); } setTimeout(() => { $('s').classList.add('h'); t0 = performance.now(); ph = 'run'; }, 30); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden && ac && ac.state === 'suspended') ac.resume(); });
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
