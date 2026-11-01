@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#02030a">
+<title>97 Portals</title>
+<style>
+html,body{margin:0;height:100%;background:#02030a;overflow:hidden;touch-action:manipulation;-webkit-user-select:none;user-select:none;font-family:"Avenir Next","Helvetica Neue",Inter,system-ui,Arial,sans-serif}
+canvas{position:fixed;inset:0;display:block}
+#vig{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at 50% 42%,rgba(0,0,0,0) 50%,rgba(1,2,10,.6) 100%)}
+#hud{position:fixed;left:50%;top:50%;width:1080px;height:1920px;margin:-960px 0 0 -540px;pointer-events:none;color:#fff;text-align:center;transform-origin:50% 50%}
+.t{position:absolute;left:0;width:100%;font-weight:800;font-size:72px;line-height:1;white-space:nowrap}
+#t1{top:215px;color:#fff;text-shadow:0 0 14px rgba(255,255,255,.14),0 3px 0 rgba(0,8,28,.35)}
+#t2{top:310px;color:#9ccbff;text-shadow:0 0 14px rgba(156,203,255,.2),0 3px 0 rgba(0,8,28,.35)}
+#x2{position:absolute;left:0;width:100%;top:520px;font-weight:800;font-size:140px;color:#ffd88a;opacity:0;text-shadow:0 0 24px rgba(255,200,100,.3)}
+#num{position:absolute;left:0;width:100%;top:1215px;font-weight:800;font-size:170px;line-height:1;color:rgba(110,225,215,.84);text-shadow:0 0 22px rgba(110,225,215,.14);white-space:nowrap}
+#unit{position:absolute;left:0;width:100%;top:1405px;font-weight:700;font-size:34px;color:#9aa6bd;opacity:.85;white-space:nowrap}
+#fact{position:absolute;left:0;width:100%;top:1470px;font-weight:700;font-size:34px;color:#d3dcef;opacity:.95;white-space:nowrap}
+#barw{position:absolute;left:190px;top:1535px;width:700px;height:6px;background:rgba(255,255,255,.14);border-radius:3px}
+#bar{height:100%;width:0;background:rgba(110,225,215,.9);border-radius:3px}
+#s{position:fixed;inset:0;display:grid;place-items:center;background:#02030a;z-index:5;transition:opacity .5s}
+#s.h{opacity:0;pointer-events:none}
+#b{width:124px;height:124px;border-radius:50%;border:2px solid rgba(255,255,255,.45);background:rgba(120,160,255,.08);color:#fff;font:700 15px system-ui,sans-serif;letter-spacing:.22em}
+</style>
+</head>
+<body>
+<div id="vig"></div>
+<div id="hud"><div id="t1" class="t"></div><div id="t2" class="t"></div><div id="x2">×2</div><div id="num"></div><div id="unit"></div><div id="fact"></div><div id="barw"><div id="bar"></div></div></div>
+<div id="s"><button id="b">TAP</button></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+if (!window.THREE) { $('s').innerHTML = '<p style="color:#fff;font:16px system-ui;padding:24px;text-align:center">Three.js failed to load.<br>Check your internet connection and reload.</p>'; return; }
+const T3 = THREE, AD = T3.AdditiveBlending, SRGB = T3.sRGBEncoding;
+/* ============ SETTINGS ============ */
+const K = 97, R0 = .005, SPC = 6, RF = 3.2;   // 97 portals · ball radius 0.5 cm (1 cm wide) · spacing & ring size relative to ball
+/* ================================== */
+const TAU = Math.PI * 2, cl = (v, a, b) => Math.min(b, Math.max(a, v)), sm = v => { v = cl(v, 0, 1); return v * v * (3 - 2 * v); }, lerp = (a, b, t) => a + (b - a) * t;
+const COLS = [[0, [47, 123, 255]], [.14, [40, 225, 255]], [.3, [60, 255, 140]], [.46, [255, 225, 60]], [.62, [255, 140, 40]], [.78, [255, 60, 70]], [.9, [230, 70, 255]], [1, [255, 255, 255]]];
+function colAt(f) { f = cl(f, 0, 1); for (let i = 1; i < COLS.length; i++) if (f <= COLS[i][0]) { const a = COLS[i - 1], b = COLS[i], u = (f - a[0]) / (b[0] - a[0]); return a[1].map((v, j) => v + (b[1][j] - v) * u); } return COLS[7][1]; }
+const colT = f => { const c = colAt(f); return new T3.Color(c[0] / 255, c[1] / 255, c[2] / 255); };
+const RK = k => R0 * Math.pow(2, Math.min(k, K));      // ball radius after k portals
+const LY = 9.4607e15, AU = 1.496e11;
+function fmtSize(D) { let n, u; if (D < 1) { n = D * 100; u = 'CENTIMETERS'; } else if (D < 1e3) { n = D; u = 'METERS'; } else if (D < 1e12) { n = D / 1e3; u = 'KILOMETERS'; } else if (D < 1e15) { n = D / AU; u = 'ASTRONOMICAL UNITS'; } else if (D < 9.46e21) { n = D / LY; u = 'LIGHT-YEARS'; } else if (D < 9.46e24) { n = D / (LY * 1e6); u = 'MILLION LIGHT-YEARS'; } else { n = D / (LY * 1e9); u = 'BILLION LIGHT-YEARS'; } return [n >= 100 ? Math.round(n).toLocaleString('en-US') : n >= 10 ? n.toFixed(1) : n.toFixed(2), u]; }
+const CMP = [['A BASKETBALL 🏀', .24], ['A PERSON 🧍', 1.75], ['THE EIFFEL TOWER 🗼', 330], ['MOUNT EVEREST 🏔️', 8849], ['THE EARTH 🌍', 1.2742e7], ['JUPITER 🪐', 1.3982e8], ['THE SUN ☀️', 1.3927e9], ['THE SOLAR SYSTEM ☄️', 9e12], ['THE MILKY WAY 🌌', 9.46e20], ['THE OBSERVABLE UNIVERSE 🤯', 8.8e26]].map(([n, s]) => { let k = 0; while (.01 * Math.pow(2, k) < s) k++; return { n, s, k }; });
+
+/* ---------- timeline: portal rate accelerates smoothly ---------- */
+const DTK = [[0, .9], [8, .75], [20, .55], [40, .42], [70, .3], [90, .22], [97, .3]];
+const dtAt = p => { for (let i = 1; i < DTK.length; i++) if (p <= DTK[i][0]) { const a = DTK[i - 1], b = DTK[i]; return a[1] + (b[1] - a[1]) * (p - a[0]) / (b[0] - a[0]); } return .3; };
+const ST = .02, NT = Math.round(K / ST), TAB = new Float64Array(NT + 1); for (let i = 1; i <= NT; i++) TAB[i] = TAB[i - 1] + dtAt((i - .5) * ST) * ST;
+const OFF = .35, TK = TAB[NT] + OFF, crossT = k => OFF + TAB[Math.round(k / ST)];
+function pOf(t) { t -= OFF; if (t <= 0) return 0; if (t >= TAB[NT]) return K + 1.3 * (1 - Math.exp(-(t - TAB[NT]) * .8)); let lo = 0, hi = NT; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (TAB[m] <= t) lo = m; else hi = m; } return (lo + (t - TAB[lo]) / (TAB[hi] - TAB[lo])) * ST; }
+const W2 = .16;
+function qInfo(p) { if (p <= 0) return [0, 0]; const pp = p + W2, n = Math.floor(pp), fr = pp - n; let q = n - 1 + (fr < 2 * W2 ? sm(fr / (2 * W2)) : 1); return [cl(q, 0, K), fr < 2 * W2 && n >= 1 && n <= K ? fr / (2 * W2) : 0]; }
+/* ---------- path through the portals (self-similar spiral) ---------- */
+const PTS = []; { let z = 0; for (let k = 0; k <= K + 3; k++) { if (k > 0) z += SPC * RK(k - 1); const a = RK(Math.max(0, k - 1)) * 2.2, an = k * .55 + .4; PTS.push(new T3.Vector3(k ? a * Math.cos(an) : 0, k ? a * .7 * Math.sin(an * .8) : 0, z)); } }
+const curve = new T3.CatmullRomCurve3(PTS, false, 'centripetal'), NU = PTS.length - 1, posAt = p => curve.getPoint(cl(p / NU, 0, 1)), tanAt = p => posAt(p + .03).sub(posAt(p - .03)).normalize();
+
+/* ---------- noise + procedural textures ---------- */
+const hs = (a, b, d) => { let h = Math.imul(a, 374761393) ^ Math.imul(b, 668265263) ^ Math.imul(d, 1274126177); h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967295; };
+function vn(X, Y, Z) { const xi = Math.floor(X), yi = Math.floor(Y), zi = Math.floor(Z), xf = X - xi, yf = Y - yi, zf = Z - zi, u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf), w = zf * zf * (3 - 2 * zf), l = (a, b, t) => a + (b - a) * t;
+  return l(l(l(hs(xi, yi, zi), hs(xi + 1, yi, zi), u), l(hs(xi, yi + 1, zi), hs(xi + 1, yi + 1, zi), u), v), l(l(hs(xi, yi, zi + 1), hs(xi + 1, yi, zi + 1), u), l(hs(xi, yi + 1, zi + 1), hs(xi + 1, yi + 1, zi + 1), u), v), w); }
+const fbm = (X, Y, Z, o) => { let s = 0, a = .5, f = 1; for (let i = 0; i < o; i++) { s += a * vn(X * f, Y * f, Z * f); f *= 2.03; a *= .5; } return s / (1 - Math.pow(.5, o)); }, ss = (a, b, v) => sm((v - a) / (b - a));
+const mkC = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h || w; return c; }, CT = (c, enc = true) => { const t = new T3.CanvasTexture(c); if (enc) t.encoding = SRGB; return t; };
+const rng = s => () => { s |= 0; s = s + 0x6D2B79F5 | 0; let t = Math.imul(s ^ s >>> 15, 1 | s); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+function glowC() { const c = mkC(128), g = c.getContext('2d'), gr = g.createRadialGradient(64, 64, 0, 64, 64, 64); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(.25, 'rgba(255,255,255,.45)'); gr.addColorStop(.6, 'rgba(255,255,255,.1)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 128, 128); return c; }
+function ticksC() { const c = mkC(512), g = c.getContext('2d'); g.translate(256, 256); for (let i = 0; i < 120; i++) { g.save(); g.rotate(i * TAU / 120); const lg = i % 5 === 0; g.fillStyle = `rgba(255,255,255,${lg ? .95 : .5})`; g.fillRect(-2.5, -248, 5, lg ? 30 : 15); g.restore(); } g.strokeStyle = 'rgba(255,255,255,.7)'; g.lineWidth = 3; g.beginPath(); g.arc(0, 0, 214, 0, TAU); g.stroke(); g.lineWidth = 8; for (let i = 0; i < 6; i++) { g.beginPath(); g.arc(0, 0, 200, i * TAU / 6 + .1, i * TAU / 6 + .75); g.stroke(); } return c; }
+function nebulaC() { const c = mkC(2048, 1024), g = c.getContext('2d'), r = rng(21); g.fillStyle = '#02030a'; g.fillRect(0, 0, 2048, 1024); g.globalCompositeOperation = 'lighter';
+  const PAL = ['90,40,210', '20,140,210', '200,40,170', '40,60,190', '30,170,160']; for (let i = 0; i < 54; i++) { const x = r() * 2048, y = r() * 1024, R = 140 + r() * 330, gr = g.createRadialGradient(x, y, 0, x, y, R); gr.addColorStop(0, `rgba(${PAL[(r() * 5) | 0]},${.07 + r() * .12})`); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(x - R, y - R, 2 * R, 2 * R); }
+  for (let i = 0; i < 4; i++) { const x = r() * 2048, y = 180 + r() * 400, R = 110 + r() * 90, gr = g.createRadialGradient(x, y, 0, x, y, R); gr.addColorStop(0, 'rgba(255,255,255,.55)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(x - R, y - R, 2 * R, 2 * R); }
+  for (let i = 0; i < 3600; i++) { g.fillStyle = `rgba(${200 + r() * 55 | 0},${210 + r() * 45 | 0},255,${.15 + r() * .75})`; const s = r() < .04 ? 2.4 : 1.2; g.fillRect(r() * 2048, r() * 1024, s, s); } return c; }
+function plasmaC() { const c = mkC(512, 256), g = c.getContext('2d'), im = g.createImageData(512, 256), d = im.data; for (let j = 0; j < 256; j++) for (let i = 0; i < 512; i++) { const lo = i / 512 * TAU, la = (j / 256 - .5) * Math.PI, X = Math.cos(la) * Math.cos(lo), Y = Math.sin(la), Z = Math.cos(la) * Math.sin(lo), n = fbm(X * 2.6 + 5, Y * 2.6, Z * 2.6, 4), v = 70 + 185 * Math.pow(1 - Math.abs(2 * n - 1), 3), o = (j * 512 + i) * 4; d[o] = d[o + 1] = d[o + 2] = v; d[o + 3] = 255; } g.putImageData(im, 0, 0); return c; }
+function earthC(D) {
+  const R = D / 2, cv = mkC(D), g = cv.getContext('2d'), im = g.createImageData(D, D), d = im.data;
+  for (let j = 0; j < D; j++) for (let i = 0; i < D; i++) { const lo = i / D * TAU, la = (j / D - .5) * Math.PI, sx = Math.cos(la) * Math.cos(lo), sy = Math.sin(la), sz = Math.cos(la) * Math.sin(lo);
+    const e = fbm(sx * 1.7 + 7, sy * 1.7, sz * 1.7, 5), m = fbm(sx * 3 + 20, sy * 3, sz * 3, 3), lat = Math.abs(sy); let r, gg, b;
+    if (e > .5) { const des = ss(.42, .55, 1 - m) * (1 - ss(.45, .7, lat)); r = 50 + 150 * des + 40 * m; gg = 110 + 55 * des - 30 * m; b = 55 + 55 * des; const sn = ss(.74, .84, lat + .08 * m); r += (244 - r) * sn; gg += (246 - gg) * sn; b += (250 - b) * sn; } else { const dp = cl((.5 - e) / .26, 0, 1); r = 20 - 16 * dp; gg = 118 - 85 * dp; b = 175 - 100 * dp; const ic = ss(.86, .93, lat); r += (230 - r) * ic; gg += (238 - gg) * ic; b += (245 - b) * ic; }
+    const cd = ss(.54, .74, fbm(sx * 2.7 + 40, sy * 2.7, sz * 2.7, 5)) * .85; r = r * (1 - cd) + 250 * cd; gg = gg * (1 - cd) + 250 * cd; b = b * (1 - cd) + 255 * cd; const o = (j * D + i) * 4; d[o] = r; d[o + 1] = gg; d[o + 2] = b; d[o + 3] = 255; }
+  g.putImageData(im, 0, 0); return cv;
+}
+function jupC() { const c = mkC(512, 256), g = c.getContext('2d'), r = rng(5); for (let y = 0; y < 256; y++) { const t = y / 256, v = Math.sin(t * 30 + Math.sin(t * 9) * 1.3) * .5 + .5; g.fillStyle = `rgb(${190 + 45 * v | 0},${140 + 60 * v | 0},${95 + 65 * v | 0})`; g.fillRect(0, y, 512, 1); } for (let i = 0; i < 160; i++) { g.fillStyle = `rgba(${r() < .5 ? '255,235,205' : '150,95,60'},${.05 + r() * .1})`; g.beginPath(); g.ellipse(r() * 512, r() * 256, 30 + r() * 60, 2 + r() * 5, 0, 0, TAU); g.fill(); } g.fillStyle = '#b5452e'; g.beginPath(); g.ellipse(160, 170, 46, 24, 0, 0, TAU); g.fill(); return c; }
+function bballC() { const c = mkC(512, 256), g = c.getContext('2d'); g.fillStyle = '#e8731c'; g.fillRect(0, 0, 512, 256); g.strokeStyle = '#1a0d05'; g.lineWidth = 7; for (const x of [0, 128, 256, 384, 512]) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, 256); g.stroke(); } g.beginPath(); g.moveTo(0, 128); g.lineTo(512, 128); g.stroke(); return c; }
+function galC() { const r = rng(7), S = 1000, cv = mkC(S), g = cv.getContext('2d'); g.translate(S / 2, S / 2); g.globalCompositeOperation = 'lighter';
+  let gr = g.createRadialGradient(0, 0, 0, 0, 0, 330); gr.addColorStop(0, 'rgba(120,150,255,.22)'); gr.addColorStop(1, 'rgba(60,80,200,0)'); g.fillStyle = gr; g.fillRect(-330, -330, 660, 660);
+  for (let i = 0; i < 16000; i++) { const th = .5 + Math.pow(r(), .85) * 12, rad = 18 * Math.exp(.215 * th), a = th + (i % 2) * Math.PI, sc = 5 + rad * .07, px = Math.cos(a) * rad + (r() + r() + r() - 1.5) * sc, py = Math.sin(a) * rad + (r() + r() + r() - 1.5) * sc; g.fillStyle = `hsla(${45 + 170 * Math.min(1, rad / 280)},85%,${62 + r() * 25}%,${.3 + r() * .5})`; g.fillRect(px, py, 1.7, 1.7); }
+  gr = g.createRadialGradient(0, 0, 0, 0, 0, 150); gr.addColorStop(0, 'rgba(255,235,190,.9)'); gr.addColorStop(.3, 'rgba(255,200,120,.35)'); gr.addColorStop(1, 'rgba(255,200,120,0)'); g.fillStyle = gr; g.fillRect(-150, -150, 300, 300); return cv; }
+function webC() { const r = rng(9), c = mkC(1024, 512), g = c.getContext('2d'), P = []; g.globalCompositeOperation = 'lighter'; for (let i = 0; i < 90; i++) P.push([r() * 1024, r() * 512]);
+  for (const p of P) { const ds = P.map(q => [Math.hypot(p[0] - q[0], p[1] - q[1]), q]).sort((a, b) => a[0] - b[0]).slice(1, 4); for (const [L, q] of ds) { if (L > 200) continue; const n = L * .9 | 0; for (let i = 0; i < n; i++) { const u = r(); g.fillStyle = `hsla(${230 + r() * 60},80%,${60 + r() * 30}%,${.3 + r() * .5})`; g.fillRect(p[0] + (q[0] - p[0]) * u + (r() - .5) * 8, p[1] + (q[1] - p[1]) * u + (r() - .5) * 8, 1.7, 1.7); } }
+    const gr = g.createRadialGradient(p[0], p[1], 0, p[0], p[1], 24); gr.addColorStop(0, 'rgba(160,190,255,.5)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(p[0] - 24, p[1] - 24, 48, 48); } return c; }
+/* animated vortex used by every portal */
+const VC = mkC(512), vg = VC.getContext('2d'), VT = CT(VC); VT.generateMipmaps = false; VT.minFilter = T3.LinearFilter;
+function drawVortex(t) { vg.clearRect(0, 0, 512, 512); vg.save(); vg.translate(256, 256); vg.globalCompositeOperation = 'lighter'; let gr = vg.createRadialGradient(0, 0, 20, 0, 0, 250); gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(.7, 'rgba(255,255,255,.1)'); gr.addColorStop(1, 'rgba(255,255,255,.55)'); vg.fillStyle = gr; vg.beginPath(); vg.arc(0, 0, 250, 0, TAU); vg.fill(); vg.lineCap = 'round';
+  for (const [lw, al] of [[6, .26], [2, .55]]) { vg.lineWidth = lw; vg.strokeStyle = `rgba(255,255,255,${al})`; for (let a = 0; a < 7; a++) { vg.beginPath(); for (let i = 0; i <= 36; i++) { const r = 24 + i * 6.2, an = a * TAU / 7 + r / 250 * 3.4 - t * 1.7; i ? vg.lineTo(Math.cos(an) * r, Math.sin(an) * r) : vg.moveTo(Math.cos(an) * r, Math.sin(an) * r); } vg.stroke(); } }
+  vg.lineWidth = 3; for (let i = 0; i < 4; i++) { const r = ((t * .45 + i * .25) % 1) * 240; vg.strokeStyle = `rgba(255,255,255,${(1 - r / 240) * .4})`; vg.beginPath(); vg.arc(0, 0, r, 0, TAU); vg.stroke(); } vg.restore(); VT.needsUpdate = true; }
+
+/* ---------- renderer / scene ---------- */
+const renderer = new T3.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2.5)); renderer.toneMapping = T3.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.15; renderer.outputEncoding = SRGB;
+document.body.insertBefore(renderer.domElement, document.body.firstChild);
+const scene = new T3.Scene(); scene.background = new T3.Color(0x02030a); scene.fog = new T3.FogExp2(0x02030a, .0034);
+const camera = new T3.PerspectiveCamera(60, 1, .05, 1e5);
+function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); $('hud').style.transform = `scale(${Math.min(w / 1080, h / 1920)})`; }
+addEventListener('resize', resize); resize();
+const NEB = nebulaC(); { const t = new T3.CanvasTexture(NEB); t.mapping = T3.EquirectangularReflectionMapping; t.encoding = SRGB; scene.environment = new T3.PMREMGenerator(renderer).fromEquirectangular(t).texture; }
+const sky = new T3.Mesh(new T3.SphereGeometry(4e4, 48, 24), new T3.MeshBasicMaterial({ map: CT(NEB), side: T3.BackSide, fog: false, depthWrite: false })); sky.renderOrder = -1; sky.frustumCulled = false; scene.add(sky);
+const key = new T3.DirectionalLight(0xfff0e0, 1.5); key.position.set(-5, 7, -3); scene.add(key); scene.add(new T3.HemisphereLight(0x8aa6ff, 0x120a22, .5));
+const bLight = new T3.PointLight(0x3b82ff, 3, 90, 1.5); scene.add(bLight);
+const world = new T3.Group(); scene.add(world);
+const GLOW = CT(glowC()), TICKT = CT(ticksC()), Z = new T3.Vector3(0, 0, 1), UP = new T3.Vector3(0, 1, 0);
+const spr = (c, o, sc) => { const s = new T3.Sprite(new T3.SpriteMaterial({ map: GLOW, color: c, transparent: true, opacity: o, blending: AD, depthWrite: false, fog: false })); s.scale.setScalar(sc); s.frustumCulled = false; return s; };
+
+/* ---------- the ball ---------- */
+const ballMat = new T3.MeshStandardMaterial({ color: 0x0a0a12, emissive: 0x3b82ff, emissiveMap: null, emissiveIntensity: 1.7, roughness: .3, metalness: .1, transparent: true });
+const ball = new T3.Mesh(new T3.SphereGeometry(1, 64, 48), ballMat); ball.frustumCulled = false; world.add(ball);
+const shell = new T3.Mesh(new T3.SphereGeometry(1.07, 48, 32), new T3.MeshBasicMaterial({ color: 0x3b82ff, transparent: true, opacity: .22, side: T3.BackSide, blending: AD, depthWrite: false, fog: false })); shell.frustumCulled = false; world.add(shell);
+const bHalo = spr(0x3b82ff, .7, 6); world.add(bHalo);
+/* trail + bursts (sprite pools) */
+function pool(n) { return Array.from({ length: n }, () => { const s = spr(0xffffff, 0, 1); s.visible = false; world.add(s); return { s, m: s.material, life: 0, max: 1, size: 1, v: new T3.Vector3() }; }); }
+const TP = pool(260), BP = pool(240); let tpI = 0, bpI = 0;
+/* speed streaks (scaled space, oriented along flight direction) */
+const NS = 700, SG = new T3.Group(), sgeo = new T3.BufferGeometry(), spos = new Float32Array(NS * 6), scol = new Float32Array(NS * 6), sd = []; for (let i = 0; i < NS; i++) { const a = Math.random() * TAU, r = 2.4 + Math.random() * 15, b = .25 + Math.random() * .75; sd.push({ x: Math.cos(a) * r, y: Math.sin(a) * r, z: -14 + Math.random() * 64, b }); scol[i * 6 + 3] = scol[i * 6 + 4] = scol[i * 6 + 5] = b; }
+sgeo.setAttribute('position', new T3.BufferAttribute(spos, 3)); sgeo.setAttribute('color', new T3.BufferAttribute(scol, 3)); const smat = new T3.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: .75, blending: AD, depthWrite: false, fog: false }), streaks = new T3.LineSegments(sgeo, smat); streaks.frustumCulled = false; SG.add(streaks); scene.add(SG);
+
+/* ---------- portals ---------- */
+const TORUS = new T3.TorusGeometry(1, .055, 20, 96), DISC = new T3.CircleGeometry(.97, 64), RING = new T3.RingGeometry(1.12, 1.32, 96, 1), SPG = new T3.BufferGeometry();
+{ const a = new Float32Array(300); for (let i = 0; i < 100; i++) { const an = Math.random() * TAU, r = 1 + (Math.random() - .5) * .2; a[i * 3] = Math.cos(an) * r; a[i * 3 + 1] = Math.sin(an) * r; a[i * 3 + 2] = (Math.random() - .5) * .14; } SPG.setAttribute('position', new T3.BufferAttribute(a, 3)); }
+const PORT = [], TAN = [];
+for (let k = 1; k <= K; k++) {
+  const R = RF * RK(k - 1), c = colT(k / K), g = new T3.Group(), T = PTS[k + 1].clone().sub(PTS[k - 1]).normalize(); TAN[k] = T;
+  const ring = new T3.Mesh(TORUS, new T3.MeshStandardMaterial({ color: c.clone().multiplyScalar(.25), emissive: c, emissiveIntensity: 1, metalness: .9, roughness: .28, envMapIntensity: 1.4, transparent: true })); ring.scale.setScalar(R);
+  const disc = new T3.Mesh(DISC, new T3.MeshBasicMaterial({ map: VT, color: c, transparent: true, opacity: .8, blending: AD, depthWrite: false, side: T3.DoubleSide, fog: false })); disc.scale.setScalar(R);
+  const ticks = new T3.Mesh(RING, new T3.MeshBasicMaterial({ map: TICKT, color: c, transparent: true, opacity: .8, blending: AD, depthWrite: false, side: T3.DoubleSide, fog: false })); ticks.scale.setScalar(R);
+  const halo = spr(c, .45, R * 3.8), sp = new T3.Points(SPG, new T3.PointsMaterial({ color: c, size: .1, map: GLOW, transparent: true, opacity: .9, blending: AD, depthWrite: false, sizeAttenuation: true, fog: false })); sp.scale.setScalar(R);
+  for (const o of [ring, disc, ticks, sp]) o.frustumCulled = false; g.add(ring, disc, ticks, halo, sp); g.position.copy(PTS[k]); g.quaternion.setFromUnitVectors(Z, T); g.visible = false; world.add(g); PORT[k] = { g, ring, disc, ticks, halo, sp, R, c };
+}
+
+/* ---------- comparison objects (real size, shown next to the ball) ---------- */
+function ghost(parts, hy) { const g = new T3.Group(); for (const [geo, x, y, z, ry] of parts) { const m = new T3.Mesh(geo, new T3.MeshBasicMaterial({ color: 0x6fe6ff, transparent: true, opacity: .13, depthWrite: false, fog: false })), l = new T3.LineSegments(new T3.EdgesGeometry(geo, 15), new T3.LineBasicMaterial({ color: 0xaef4ff, transparent: true, opacity: .85, fog: false })); for (const o of [m, l]) { o.position.set(x, y - hy, z); o.rotation.y = ry || 0; g.add(o); } } return g; }
+const Cy = (a, b, h, s) => new T3.CylinderGeometry(a, b, h, s), PI = Math.PI;
+const sphere = (r, mat) => new T3.Mesh(new T3.SphereGeometry(r, 64, 48), mat);
+const REFS = [
+  { hy: .12, mk: () => sphere(.12, new T3.MeshStandardMaterial({ map: CT(bballC()), roughness: .7 })) },
+  { hy: .875, mk: () => ghost([[Cy(.09, .09, .85, 12), -.1, .425, 0], [Cy(.09, .09, .85, 12), .1, .425, 0], [Cy(.2, .17, .6, 14), 0, 1.15, 0], [Cy(.05, .05, .62, 8), -.3, 1.15, 0], [Cy(.05, .05, .62, 8), .3, 1.15, 0], [new T3.SphereGeometry(.13, 16, 12), 0, 1.62, 0]], .875) },
+  { hy: 165, mk: () => ghost([[Cy(28, 62, 57, 4), 0, 28.5, 0, PI / 4], [Cy(20, 28, 58, 4), 0, 86, 0, PI / 4], [Cy(6, 17, 161, 4), 0, 195.5, 0, PI / 4], [Cy(1, 5, 54, 4), 0, 303, 0, PI / 4]], 165) },
+  { hy: 4424, mk: () => ghost([[new T3.ConeGeometry(6500, 8849, 7, 1), 0, 4424.5, 0]], 4424) },
+  { hy: 6.371e6, mk: () => sphere(6.371e6, new T3.MeshStandardMaterial({ map: CT(earthC(512)), roughness: .8 })) },
+  { hy: 6.99e7, mk: () => sphere(6.99e7, new T3.MeshStandardMaterial({ map: CT(jupC()), roughness: .85 })) },
+  { hy: 6.96e8, mk: () => { const g = new T3.Group(); g.add(sphere(6.96e8, new T3.MeshBasicMaterial({ color: 0xffc860, fog: false })), spr(0xffa040, .8, 6.96e8 * 4.4)); return g; } },
+  { hy: 1.8e12, mk: () => { const g = new T3.Group(), p = new T3.Group(); for (const au of [.39, .72, 1, 1.52, 5.2, 9.58, 19.2, 30.07]) { const pts = []; for (let i = 0; i < 128; i++) pts.push(new T3.Vector3(Math.cos(i / 128 * TAU) * au * AU, Math.sin(i / 128 * TAU) * au * AU, 0)); p.add(new T3.LineLoop(new T3.BufferGeometry().setFromPoints(pts), new T3.LineBasicMaterial({ color: 0x9fd4ff, transparent: true, opacity: .6, fog: false }))); } p.add(spr(0xffc860, .9, 3e11 * 3)); p.rotation.x = 1.05; g.add(p); return g; } },
+  { hy: 3e20, mk: () => { const m = new T3.Mesh(new T3.CircleGeometry(7.9e20, 64), new T3.MeshBasicMaterial({ map: CT(galC()), transparent: true, blending: AD, depthWrite: false, side: T3.DoubleSide, fog: false })); m.rotation.x = -1.05; const g = new T3.Group(); g.add(m); return g; } },
+  { hy: 4.4e26, mk: () => { const g = new T3.Group(); g.add(new T3.Mesh(new T3.SphereGeometry(4.4e26, 64, 48), new T3.MeshBasicMaterial({ map: CT(webC()), transparent: true, blending: AD, depthWrite: false, fog: false })), spr(0x7fa0ff, .6, 4.4e26 * 3.2)); return g; } }];
+function prepRefs() { REFS.forEach((r, i) => { const o = r.mk(), mats = []; o.traverse(n => { n.frustumCulled = false; if (n.material) (Array.isArray(n.material) ? n.material : [n.material]).forEach(m => { m.transparent = true; mats.push([m, m.opacity])); }); o.visible = false; world.add(o); r.o = o; r.mats = mats; r.off = 2.05 * RK(CMP[i].k) + r.hy * 1.05; }); }
+/* ---------- audio ---------- */
+let ac, mg, rv, nb, padBus, rzG, rzF, rzO, drG, drO1, drO2;
+const PENT = [0, 2, 4, 7, 9], CH = [[110, 164.8, 220, 261.6], [87.3, 130.8, 174.6, 220], [130.8, 196, 261.6, 329.6], [98, 146.8, 196, 246.9]];
+const noteF = i => { const n = i % 15; return 261.63 * Math.pow(2, (PENT[n % 5] + 12 * Math.floor(n / 5)) / 12); };
+function out(n, w, pan) { let q = n; if (pan !== undefined && ac.createStereoPanner) { q = ac.createStereoPanner(); q.pan.value = pan; n.connect(q); } q.connect(mg); if (w) { const g = ac.createGain(); g.gain.value = w; q.connect(g); g.connect(rv); } }
+function tone(f, f2, d, g, ty = 'sine', w = .3, pan, att = .005) { const n = ac.currentTime, o = ac.createOscillator(), v = ac.createGain(); o.type = ty; o.frequency.setValueAtTime(f, n); o.frequency.exponentialRampToValueAtTime(Math.max(18, f2), n + d); v.gain.setValueAtTime(0, n); v.gain.linearRampToValueAtTime(g, n + att); v.gain.exponentialRampToValueAtTime(.0001, n + d); o.connect(v); out(v, w, pan); o.start(n); o.stop(n + d + .02); }
+function nsweep(d, f1, f2, g, w, pan, ty = 'bandpass') { const n = ac.currentTime, s = ac.createBufferSource(), fl = ac.createBiquadFilter(), v = ac.createGain(); s.buffer = nb; fl.type = ty; fl.Q.value = .9; fl.frequency.setValueAtTime(f1, n); fl.frequency.exponentialRampToValueAtTime(f2, n + d); v.gain.setValueAtTime(0, n); v.gain.linearRampToValueAtTime(g, n + d * .35); v.gain.exponentialRampToValueAtTime(.0001, n + d); s.connect(fl); fl.connect(v); out(v, w, pan); s.start(n, Math.random() * 1.5); s.stop(n + d + .02); }
+function pad(fs) { const n = ac.currentTime, v = ac.createGain(), lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 650; lp.Q.value = 2; v.gain.setValueAtTime(0, n); v.gain.linearRampToValueAtTime(.05, n + 3.5); v.gain.linearRampToValueAtTime(.0001, n + 10); lp.connect(v); v.connect(padBus); fs.forEach(f => [-7, 7].forEach(dt => { const o = ac.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; o.detune.value = dt; o.connect(lp); o.start(n); o.stop(n + 10.2); })); }
+function initAudio() {
+  ac = new (window.AudioContext || window.webkitAudioContext)(); try { navigator.audioSession.type = 'playback'; } catch (e) {}
+  const cp = ac.createDynamicsCompressor(); cp.threshold.value = -16; cp.ratio.value = 4; mg = ac.createGain(); mg.gain.value = .9; mg.connect(cp); cp.connect(ac.destination);
+  const L = (ac.sampleRate * 3.2) | 0, ir = ac.createBuffer(2, L, ac.sampleRate); for (let k = 0; k < 2; k++) { const d = ir.getChannelData(k); for (let i = 0; i < L; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / L, 2.8); } rv = ac.createConvolver(); rv.buffer = ir; rv.connect(mg);
+  nb = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate); const nd = nb.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+  padBus = ac.createGain(); padBus.gain.value = .8; padBus.connect(mg); const pw = ac.createGain(); pw.gain.value = .6; padBus.connect(pw); pw.connect(rv);
+  rzO = ac.createOscillator(); rzO.type = 'sawtooth'; rzO.frequency.value = 60; rzF = ac.createBiquadFilter(); rzF.type = 'lowpass'; rzF.frequency.value = 200; rzG = ac.createGain(); rzG.gain.value = 0; rzO.connect(rzF); rzF.connect(rzG); rzG.connect(mg); rzO.start();
+  drG = ac.createGain(); drG.gain.value = .05; drO1 = ac.createOscillator(); drO2 = ac.createOscillator(); drO1.frequency.value = 36.7; drO2.frequency.value = 37.4; const tri = ac.createOscillator(), tg = ac.createGain(); tri.type = 'triangle'; tri.frequency.value = 73.4; tg.gain.value = .35; tri.connect(tg); tg.connect(drG); drO1.connect(drG); drO2.connect(drG); drG.connect(mg); [drO1, drO2, tri].forEach(o => o.start());
+  let k = 0; (function a() { pad(CH[k++ % 4]); setTimeout(a, 7000); })();
+}
+function portalSound(k, pan) {
+  if (!ac) return; const q = k / K, f = noteF(k - 1); nsweep(.28 + .5 * (1 - q), 400 + 300 * q, 3500 + 2500 * q, .2, .5, pan); tone(f, f, 1.3 + .8 * (1 - q), .09, 'sine', .8, pan); tone(f * 2, f * 2, .9, .03, 'triangle', .8, pan); if (k % 2 === 0) tone(f * 4, f * 4, .5, .018, 'sine', .9, pan);
+  const sf = Math.max(28, 150 * Math.pow(.5, k / 22)); tone(sf * 1.7, sf, .25 + .5 * q, .16 + .34 * q, 'sine', .2); if (k > 35) nsweep(.05, 2200, 2200, .1, .2, pan);
+}
+function bigSound() { if (!ac) return; tone(95, 26, 2.2, .7, 'sine', .3); nsweep(1.6, 300, 4500, .3, .6); tone(f4(), f4(), 1.2, .05, 'sine', .8); } const f4 = () => 880;
+function finalBoom() { if (!ac) return; rzG.gain.setTargetAtTime(0, ac.currentTime, .05); tone(70, 20, 6, .95, 'sine', .5, undefined, .01); tone(44, 20, 5, .6, 'sawtooth', .3, undefined, .01); nsweep(4, 200, 200, .8, .8, 0, 'lowpass'); nsweep(.5, 3000, 3000, .5, .6, 0); [146.8, 220, 293.7, 440, 587.3, 880].forEach((f, i) => setTimeout(() => tone(f, f, 8, .06, 'sine', .9, undefined, .7), 1300 + i * 140)); }
+
+/* ---------- HUD helpers ---------- */
+const sp = s => s.split('').join(' ');
+function fitW(el) { el.style.transform = ''; const w = el.scrollWidth; el.style.transform = w > 980 ? `scale(${980 / w})` : ''; }
+function setT(el, s) { if (el._v !== s) { el._v = s; el.textContent = s; if (el.className === 't' || el.id === 'fact' || el.id === 'num') fitW(el); } }
+
+/* ---------- main loop ---------- */
+let ph = 'idle', t0 = 0, last = 0, nextK = 1, shk = 0, punch = 0, pop = 0, capI = -1, capUntil = 0, crossed = 0; const refT = new Array(10).fill(-99), Tsm = new T3.Vector3(0, 0, 1), prevB = new T3.Vector3(), bpos = new T3.Vector3(), tmp = new T3.Vector3();
+function onCross(k, t) {
+  crossed = k; const c = PORT[k].c, pan = Math.sin(k * 1.7) * .6; portalSound(k, pan); punch = 1; shk = Math.max(shk, .03 + .015 * (k / K)); pop = k < 45 ? 1 : .55;
+  const R = PORT[k].R, T = TAN[k], U = new T3.Vector3().crossVectors(T, UP).normalize(), V = new T3.Vector3().crossVectors(T, U).normalize();
+  for (let i = 0; i < 40; i++) { const b = BP[bpI++ % BP.length], a = Math.random() * TAU, v = R * (1.2 + Math.random() * 1.8); b.v.copy(U).multiplyScalar(Math.cos(a) * v).addScaledVector(V, Math.sin(a) * v).addScaledVector(T, (Math.random() - .3) * R * .8); b.s.position.copy(PTS[k]).addScaledVector(U, Math.cos(a) * R).addScaledVector(V, Math.sin(a) * R); b.life = b.max = .55 + Math.random() * .5; b.size = R * (.1 + Math.random() * .14); b.m.color.copy(c); b.s.visible = true; }
+  CMP.forEach((m, i) => { if (m.k === k) { capI = i; capUntil = t + 1.9; refT[i] = t; shk = .09; if (k > 3) bigSound(); } });
+}
+function frame(now) {
+  requestAnimationFrame(frame); if (ph === 'idle') return;
+  const t = Math.max(0, (now - t0) / 1000), dt = Math.min(.05, (now - last) / 1000 || .016); last = now;
+  const p = pOf(t), [q, cf] = qInfo(p), tf = t - TK, S0 = Math.pow(2, q);
+  while (nextK <= K && t >= crossT(nextK)) onCross(nextK++, t);
+  /* ball */
+  bpos.copy(posAt(p)); const rb = R0 * S0 * (1 + .1 * Math.sin(Math.PI * cf)), S = 1 / rb, bc = colT(q / K);
+  world.scale.setScalar(S); world.position.set(-S * bpos.x, -S * bpos.y, -S * bpos.z);
+  const fin = tf > 0 ? sm((tf - .8) / 1.8) : 0, ba = 1 - .82 * fin; ball.position.copy(bpos); ball.scale.setScalar(rb); ball.rotation.set(t * .3, t * .6, 0); ballMat.emissive.copy(bc); ballMat.emissiveIntensity = (1.5 + .7 * Math.sin(Math.PI * cf)) * (1 - .5 * fin); ballMat.opacity = ba; ballMat.depthWrite = ba > .9;
+  shell.position.copy(bpos); shell.scale.setScalar(rb); shell.material.color.copy(bc); shell.material.opacity = .22 * ba + .1 * fin; bHalo.position.copy(bpos); bHalo.scale.setScalar(rb * 6); bHalo.material.color.copy(bc); bHalo.material.opacity = .7 * (1 - .4 * fin); bLight.color.copy(bc);
+  /* trail */
+  if (tpI >= 0 && prevB.lengthSq() > 0) { const d = prevB.distanceTo(bpos), n = cl(Math.ceil(d / (.55 * rb)), 1, 6); for (let i = 0; i < n; i++) { const tr = TP[tpI++ % TP.length]; tr.s.position.lerpVectors(prevB, bpos, (i + 1) / n); tr.size = rb * 1.9; tr.life = tr.max = .6; tr.m.color.copy(bc); tr.s.visible = true; } } prevB.copy(bpos);
+  for (const tr of TP) if (tr.s.visible) { tr.life -= dt; if (tr.life <= 0) { tr.s.visible = false; continue; } const a = tr.life / tr.max; tr.m.opacity = a * .55; tr.s.scale.setScalar(tr.size * (.35 + .65 * a)); }
+  for (const b of BP) if (b.s.visible) { b.life -= dt; if (b.life <= 0) { b.s.visible = false; continue; } b.s.position.addScaledVector(b.v, dt); b.v.multiplyScalar(1 - 1.6 * dt); const a = b.life / b.max; b.m.opacity = a * a; b.s.scale.setScalar(b.size * (.5 + a)); }
+  /* flight direction + streaks */
+  tmp.copy(tanAt(p)); Tsm.lerp(tmp, 1 - Math.exp(-dt * 6)).normalize(); SG.quaternion.setFromUnitVectors(Z, Tsm);
+  const vS = t > OFFS ? Math.min(60, posAt(p + .05).sub(posAt(p)).length() / .05 / rb / dtAt(Math.min(p, K)) * 1.05) : 6; smat.color.copy(bc).lerp(new T3.Color(1, 1, 1), .5); smat.opacity = .75 * (1 - .6 * fin);
+  const len = cl(vS * .045, .3, 3.2); for (let i = 0; i < NS; i++) { const s = sd[i]; s.z -= vS * dt; if (s.z < -14) s.z += 64; spos[i * 6] = s.x; spos[i * 6 + 1] = s.y; spos[i * 6 + 2] = s.z; spos[i * 6 + 3] = s.x; spos[i * 6 + 4] = s.y; spos[i * 6 + 5] = s.z + len * s.b; } sgeo.attributes.position.needsUpdate = true;
+  /* portals */
+  drawVortex(t); const lo = Math.max(1, Math.floor(p) - 1), hi = Math.min(K, Math.floor(p) + 5);
+  for (let k = 1; k <= K; k++) { const P = PORT[k], vis = k >= lo && k <= hi; if (P.g.visible !== vis) P.g.visible = vis; if (!vis) continue; const age = t - crossT(k), pulse = age > 0 ? Math.exp(-age * 4.5) : 0, ch = p < k ? sm(1 - (k - p) / 2) * .6 : 0, gl = Math.max(pulse, ch), fade = (1 - sm((k - p - 1.2) / 3.2)) * (1 - sm((p - k - .4) / 1.4));
+    P.ring.material.emissiveIntensity = 1 + 2.6 * gl; P.ring.material.opacity = fade; P.disc.material.opacity = (.5 + .4 * gl) * fade; P.ticks.material.opacity = .8 * fade; P.halo.material.opacity = (.35 + .6 * gl) * fade; P.sp.material.opacity = .9 * fade; P.sp.material.size = .07 * P.R * S;
+    P.disc.rotation.z = t * (.6 + ch); P.ticks.rotation.z = -t * .5; P.sp.rotation.z = t * 1.3; P.g.scale.setScalar(1 + .18 * pulse); }
+  /* comparison objects */
+  let act = 0; REFS.forEach((r, i) => { let a = 0; if (i === 9) a = tf > 0 ? sm((tf - .3) / 1.4) : 0; else { const dtc = t - refT[i]; a = dtc >= 0 ? sm((dtc + .02) / .3) * (1 - sm((dtc - 1.6) / .3)) : 0; }
+    r.o.visible = a > .01; if (!r.o.visible) return; act = Math.max(act, i === 9 ? 0 : a); if (i === 9) r.o.position.copy(bpos); else r.o.position.set(bpos.x, bpos.y + r.off, bpos.z); r.o.rotation.y = i === 9 ? t * .05 : i === 4 || i === 5 || i === 0 ? t * .5 : 0; for (const [m, o] of r.mats) m.opacity = o * a; });
+  /* camera rig */
+  const fwd = Tsm.clone(), right = new T3.Vector3().crossVectors(fwd, UP).normalize(), up2 = new T3.Vector3().crossVectors(right, fwd).normalize();
+  let c = 4.4 + .5 * Math.sin(p * .27), h = .7 + .35 * Math.sin(p * .2), sx = 1.5 * Math.sin(p * .31), la = 3.5, ld = 1.25 - 1.1 * act, az = 0;
+  c *= 1 + .5 * act; h += .5 * act; if (tf > 0) { const f = sm((tf - .3) / 3.4); c = lerp(c, 21, f); h = lerp(h, 6, f); sx = lerp(sx, 0, f); az = tf * .45 * f; ld = lerp(ld, 0, f); la = lerp(la, 0, f); }
+  punch *= Math.exp(-dt * 6); shk *= Math.exp(-dt * 5);
+  const ca = Math.cos(az), sa = Math.sin(az); camera.position.set(0, 0, 0).addScaledVector(fwd, -c * ca).addScaledVector(right, sx + c * sa).addScaledVector(up2, h).add(new T3.Vector3((Math.random() - .5) * shk, (Math.random() - .5) * shk, (Math.random() - .5) * shk));
+  camera.fov = 60 + 8 * punch; camera.updateProjectionMatrix(); camera.lookAt(new T3.Vector3().addScaledVector(fwd, la).addScaledVector(up2, -ld)); camera.rotateZ(.06 * Math.sin(p * .31) + .03 * Math.sin(t * .4));
+  sky.position.copy(camera.position); bLight.position.set(0, 0, 0);
+  if (ac) { const r = cl(p / K, 0, 1); rzO.frequency.setTargetAtTime(60 * Math.pow(2, 3.4 * r), ac.currentTime, .1); rzF.frequency.setTargetAtTime(200 + 3800 * r * r, ac.currentTime, .15); if (tf < 0) rzG.gain.setTargetAtTime(.05 * r * r, ac.currentTime, .2); drG.gain.setTargetAtTime(.05 + .22 * r, ac.currentTime, .3); padBus.gain.setTargetAtTime(.7 + .8 * r, ac.currentTime, .5); if (tf >= 0 && !onceF) { onceF = true; finalBoom(); } }
+  /* HUD */
+  const [nv, un] = fmtSize(.01 * Math.pow(2, q) * (1 + .1 * Math.sin(Math.PI * cf))), end = tf > 0.8, out2 = tf > 4.8, hook = t < 3.4;
+  setT($('t1'), end ? '97 PORTALS' : hook ? 'EVERY PORTAL DOUBLES THIS BALL' : 'PORTAL #' + Math.max(1, crossed)); setT($('t2'), end ? 'BIGGER THAN THE UNIVERSE 🤯' : hook ? 'HOW BIG AFTER 97 PORTALS? 😳' : (capI >= 0 && t < capUntil) ? 'BIGGER THAN ' + CMP[capI].n : '×2 BIGGER EVERY TIME ⚡');
+  setT($('num'), nv); setT($('unit'), sp(un)); setT($('fact'), out2 ? 'WHICH PORTAL SHOCKED YOU? 👇' : end ? 'THE OBSERVABLE UNIVERSE IS ~93 BILLION LIGHT-YEARS WIDE' : '1 CM → 2 → 4 → 8 → 16 …'); $('bar').style.width = (100 * crossed / K) + '%';
+  pop *= Math.exp(-dt * 5); $('x2').style.opacity = tf > 0 ? 0 : pop * .9; $('x2').style.transform = `scale(${1 + .5 * pop})`;
+  renderer.render(scene, camera);
+}
+const OFFS = OFF; let onceF = false;
+addEventListener('pointerdown', () => { if (ph === 'run' && (performance.now() - t0) / 1000 > TK + 7) { t0 = performance.now(); nextK = 1; crossed = 0; capI = -1; capUntil = 0; refT.fill(-99); onceF = false; prevB.set(0, 0, 0); for (const o of [...TP, ...BP]) o.s.visible = false; } });
+$('b').addEventListener('click', () => { $('b').textContent = '...'; try { initAudio(); } catch (e) { console.error(e); } setTimeout(() => { ballMat.emissiveMap = CT(plasmaC()); ballMat.needsUpdate = true; prepRefs(); $('s').classList.add('h'); t0 = performance.now(); ph = 'run'; }, 30); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden && ac && ac.state === 'suspended') ac.resume(); });
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
