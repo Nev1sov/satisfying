@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#000000">
+<title>Rock Paper Scissors Battle</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{width:100%;height:100%;background:#000;overflow:hidden;touch-action:manipulation;-webkit-user-select:none;user-select:none;font-family:"Avenir Next","Helvetica Neue",Inter,system-ui,Arial,sans-serif}
+#wrap{position:fixed;inset:0;display:grid;place-items:center}
+#stage{position:relative}canvas{display:block;width:100%;height:100%}
+#restart{position:absolute;left:50%;top:62%;transform:translate(-50%,-50%);display:none;padding:2.2% 8%;font-size:clamp(18px,5vw,34px);font-weight:900;letter-spacing:.12em;color:#04101f;background:#35c8ff;border:none;border-radius:18px;cursor:pointer;animation:p 1.2s ease-in-out infinite}
+#restart.show{display:block}
+@keyframes p{50%{transform:translate(-50%,-50%) scale(1.07)}}
+#start{position:fixed;inset:0;z-index:10;background:rgba(4,6,20,.95);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:24px;text-align:center;color:#fff;transition:opacity .35s}
+#start.hide{opacity:0;pointer-events:none}
+#start h1{font-size:clamp(28px,7.5vw,48px);font-weight:900;letter-spacing:.06em;line-height:1.15}
+#start p{font-size:14px;color:#8fa6c8;max-width:340px;line-height:1.5}
+#go{padding:18px 44px;font-size:22px;font-weight:900;letter-spacing:.1em;color:#04101f;background:#35c8ff;border:none;border-radius:16px;animation:p 1.4s ease-in-out infinite}
+</style>
+</head>
+<body>
+<div id="wrap"><div id="stage"><canvas id="cv"></canvas><button id="restart">RESTART</button></div></div>
+<div id="start"><h1>🪨 ✂️ 📄<br>WHO WINS?</h1><p>30 fighters. One survivor. Rock beats scissors, scissors beat paper, paper covers rock.</p><button id="go">TAP TO START</button><p id="err" style="font-size:12px">Start screen recording first, then tap START.<br>Turn the silent switch off for sound.</p></div>
+<script>
+(() => {
+'use strict';
+/* ================= SETTINGS ================= */
+const COUNT = 10;                  // 10 fighters of each kind (total = 30)
+const R = 36;                      // fighter radius
+const SPEED = 2.5;                 // ultra-smooth, slow and calm speed
+const COOLDOWN = 0.2;              // seconds a fighter can't be converted again after it changed
+const AR = { x: 60, y: 520, w: 960, h: 960 };   // arena
+const TYPES = [
+  { key: 'ROCKS',    win: 'ROCK WINS! 🪨',     emoji: '🪨', col: '#ff4d5e' },
+  { key: 'SCISSORS', win: 'SCISSORS WIN! ✂️',   emoji: '✂️', col: '#3da5ff' },
+  { key: 'PAPERS',   win: 'PAPER WINS! 📄',     emoji: '📄', col: '#3dff8f' },
+];
+/* ============================================ */
+
+const $ = id => document.getElementById(id), clamp = (v, a, b) => Math.min(b, Math.max(a, v)), lerp = (a, b, t) => a + (b - a) * t, rnd = (a, b) => a + Math.random() * (b - a);
+const W = 1080, H = 1920, TAU = Math.PI * 2, TOTAL = COUNT * 3, STEP = 1000 / 60, FF = '"Avenir Next","Helvetica Neue",Inter,"Segoe UI",Arial,sans-serif', EMOJI_FF = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+const cv = $('cv'), ctx = cv.getContext('2d', { alpha: false }), stage = $('stage'); let K = 1, bgc, sprites = [], PAD = 18;
+if (typeof Matter === 'undefined') { $('err').textContent = 'Matter.js did not load. Check your internet connection and reload.'; $('go').style.display = 'none'; return; }
+const { Engine, Bodies, Body, Composite, Events } = Matter;
+
+/* ---------- canvas, background and sprites ---------- */
+function layout() {
+  const vv = window.visualViewport, vw = vv ? vv.width : innerWidth, vh = vv ? vv.height : innerHeight, s = Math.min(vw / W, vh / H), dpr = Math.min(devicePixelRatio || 1, 2);
+  stage.style.width = W * s + 'px'; stage.style.height = H * s + 'px'; cv.width = Math.round(W * s * dpr); cv.height = Math.round(H * s * dpr); K = cv.width / W;
+  const c = document.createElement('canvas'); c.width = cv.width; c.height = cv.height; const g = c.getContext('2d'); g.setTransform(K, 0, 0, K, 0, 0);
+  const gr = g.createLinearGradient(0, 0, 0, H); gr.addColorStop(0, '#040618'); gr.addColorStop(1, '#0a1030'); g.fillStyle = gr; g.fillRect(0, 0, W, H);
+  g.strokeStyle = 'rgba(120,170,255,.045)'; g.lineWidth = 1.5; g.beginPath(); for (let x = 0; x <= W; x += 90) { g.moveTo(x, 0); g.lineTo(x, H); } for (let y = 0; y <= H; y += 90) { g.moveTo(0, y); g.lineTo(W, y); } g.stroke();
+  g.fillStyle = 'rgba(255,255,255,.025)'; g.fillRect(AR.x, AR.y, AR.w, AR.h);
+  const v = g.createRadialGradient(W / 2, 1000, 450, W / 2, 1000, 1250); v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,.55)'); g.fillStyle = v; g.fillRect(0, 0, W, H); bgc = c;
+  
+  const size = (R + PAD) * 2; sprites = TYPES.map(t => {
+    const sc = document.createElement('canvas'); sc.width = sc.height = Math.ceil(size * K); const q = sc.getContext('2d'); q.scale(sc.width / size, sc.width / size); const m = size / 2;
+    const gl = q.createRadialGradient(m, m, R * 0.6, m, m, m); gl.addColorStop(0, t.col + '66'); gl.addColorStop(1, t.col + '00'); q.fillStyle = gl; q.fillRect(0, 0, size, size);
+    const bg = q.createRadialGradient(m - R * 0.3, m - R * 0.35, R * 0.1, m, m, R); bg.addColorStop(0, t.col + '55'); bg.addColorStop(1, '#060a1c'); q.fillStyle = bg; q.beginPath(); q.arc(m, m, R, 0, TAU); q.fill();
+    q.strokeStyle = t.col; q.lineWidth = 4; q.stroke(); q.font = `${R * 1.15}px ${EMOJI_FF}`; q.textAlign = 'center'; q.textBaseline = 'middle'; q.fillText(t.emoji, m, m + R * 0.06); return sc;
+  });
+}
+let rz; const onR = () => { clearTimeout(rz); rz = setTimeout(layout, 100); }; addEventListener('resize', onR); addEventListener('orientationchange', onR);
+
+/* ---------- audio & melody synthesizer ---------- */
+let ac, master, noise, sfxT = 0, sfxN = 0, melodyTimer = null;
+const scale = [60, 63, 65, 67, 70, 72];
+const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
+
+function initAudio() {
+  if (ac) { if (ac.state === 'suspended') ac.resume(); return; }
+  ac = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' }); 
+  try { navigator.audioSession.type = 'playback'; } catch (e) {}
+  const comp = ac.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 5; 
+  master = ac.createGain(); master.gain.value = 0.9; master.connect(comp); master.connect(ac.destination);
+  
+  noise = ac.createBuffer(1, ac.sampleRate, ac.sampleRate); const d = noise.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  const s = ac.createBufferSource(); s.buffer = ac.createBuffer(1, 1, 22050); s.connect(ac.destination); s.start(0); 
+  if (ac.state === 'suspended') ac.resume();
+
+  if (melodyTimer) clearInterval(melodyTimer);
+  melodyTimer = setInterval(playBackgroundNote, 350);
+}
+
+function playBackgroundNote() {
+  if (!ac || ac.state !== 'running' || winner >= 0) return;
+  const t = ac.currentTime + 0.01;
+  const note = scale[Math.floor(Math.random() * scale.length)];
+  const f = mtof(note);
+  
+  const o = ac.createOscillator(), g = ac.createGain();
+  o.type = 'sine'; o.frequency.setValueAtTime(f, t);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.05, t + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+  o.connect(g); g.connect(master);
+  o.start(t); o.stop(t + 0.35);
+}
+
+function osc(type, f0, f1, t, dur, vol) { const o = ac.createOscillator(), g = ac.createGain(); o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.02); }
+function nz(t, dur, f, q, vol) { const s = ac.createBufferSource(), b = ac.createBiquadFilter(), g = ac.createGain(); s.buffer = noise; b.type = 'bandpass'; b.frequency.value = f; b.Q.value = q; g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); s.connect(b); b.connect(g); g.connect(master); s.start(t, Math.random() * 0.5); s.stop(t + dur + 0.02); }
+function sfx(type, big) {
+  if (!ac || ac.state !== 'running') return; const n = performance.now(); sfxN = Math.min(8, sfxN + (n - sfxT) * 0.03); sfxT = n; if (sfxN < 1 && !big) return; sfxN--; const t = ac.currentTime + 0.003;
+  if (type === 0) { osc('sine', 150, 55, t, 0.16, 0.45); nz(t, 0.05, 900, 1, 0.12); } else if (type === 1) { nz(t, 0.05, 5200, 3, 0.22); osc('triangle', 2400, 1500, t, 0.05, 0.08); } else { nz(t, 0.14, 1700, 1.2, 0.2); osc('sine', 500, 330, t, 0.12, 0.08); }
+}
+function winSfx(type) { 
+  if (!ac) return; 
+  const t = ac.currentTime + 0.02; 
+  osc('sine', 130, 30, t, 1.2, 0.9); 
+  [0, 4, 7, 12].forEach((o, i) => osc('triangle', 440 * Math.pow(2, (o + [0, 2, 4][type]) / 12), 440 * Math.pow(2, (o + [0, 2, 4][type]) / 12) * 1.001, t + 0.05 + i * 0.09, 1.2, 0.18)); 
+}
+
+/* ---------- simulation ---------- */
+let engine, bodies = [], counts = [0, 0, 0], simT = 0, acc = 0, last = 0, started = false, winner = -1, endT = 0, trauma = 0, clock = 0;
+const parts = [], rings = [];
+function init() {
+  engine = Engine.create({ positionIterations: 6, velocityIterations: 4, enableSleeping: false }); engine.gravity.x = 0; engine.gravity.y = 0; engine.gravity.scale = 0;
+  const T = 500, o = { isStatic: true, restitution: 1, friction: 0, frictionStatic: 0 };
+  Composite.add(engine.world, [Bodies.rectangle(AR.x + AR.w / 2, AR.y - T / 2, AR.w + 2 * T, T, o), Bodies.rectangle(AR.x + AR.w / 2, AR.y + AR.h + T / 2, AR.w + 2 * T, T, o), Bodies.rectangle(AR.x - T / 2, AR.y + AR.h / 2, T, AR.h + 2 * T, o), Bodies.rectangle(AR.x + AR.w + T / 2, AR.y + AR.h / 2, T, AR.h + 2 * T, o)]);
+  bodies = []; counts = [COUNT, COUNT, COUNT]; simT = 0; acc = 0; winner = -1; endT = 0; trauma = 0; parts.length = 0; rings.length = 0; $('restart').classList.remove('show');
+  
+  for (let i = 0; i < TOTAL; i++) {
+    let rps = Math.floor(i / COUNT); // 0: ROCKS, 1: SCISSORS, 2: PAPERS
+    let minX, maxX, minY, maxY;
+    
+    if (rps === 1) {
+      // ✂️ Ножницы: левый верхний угол
+      minX = AR.x + R + 10; maxX = AR.x + AR.w * 0.35;
+      minY = AR.y + R + 10; maxY = AR.y + AR.h * 0.35;
+    } else if (rps === 0) {
+      // 🪨 Камни: нижний правый угол
+      minX = AR.x + AR.w * 0.65; maxX = AR.x + AR.w - R - 10;
+      minY = AR.y + AR.h * 0.65; maxY = AR.y + AR.h - R - 10;
+    } else {
+      // 📄 Бумаги: верхний правый угол
+      minX = AR.x + AR.w * 0.65; maxX = AR.x + AR.w - R - 10;
+      minY = AR.y + R + 10; maxY = AR.y + AR.h * 0.35;
+    }
+
+    let x, y, tries = 0; 
+    do { 
+      x = rnd(minX, maxX); 
+      y = rnd(minY, maxY); 
+      tries++; 
+    } while (tries < 200 && bodies.some(b => Math.hypot(b.position.x - x, b.position.y - y) < R * 2.3));
+
+    const b = Bodies.circle(x, y, R, { restitution: 1, friction: 0, frictionStatic: 0, frictionAir: 0, slop: 0.02 }); 
+    Body.setInertia(b, Infinity); 
+    const a = rnd(0, TAU), sp = SPEED * rnd(0.9, 1.1); 
+    Body.setVelocity(b, { x: Math.cos(a) * sp, y: Math.sin(a) * sp });
+    
+    b.rps = rps; b.cd = 0; b.pop = 0; b.spd = sp / SPEED; b.px = x; b.py = y; 
+    bodies.push(b);
+  }
+  Composite.add(engine.world, bodies);
+
+  Events.on(engine, 'collisionStart', ev => {
+    for (const p of ev.pairs) {
+      const a = p.bodyA, b = p.bodyB; if (a.isStatic || b.isStatic || a.rps === b.rps) continue;
+      let w, l; if ((a.rps + 1) % 3 === b.rps) { w = a; l = b; } else { w = b; l = a; }
+      if (l.cd > simT) continue;
+      counts[l.rps]--; counts[w.rps]++; l.rps = w.rps; l.cd = simT + COOLDOWN; l.pop = 1; burst(l.position.x, l.position.y, w.rps); sfx(w.rps); trauma = Math.min(0.5, trauma + 0.03);
+    }
+  });
+}
+function burst(x, y, t) { rings.push({ x, y, age: 0, t }); for (let i = 0; i < 6 && parts.length < 140; i++) { const a = rnd(0, TAU), s = rnd(120, 420); parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, age: 0, life: rnd(0.25, 0.55), t }); } }
+function stepPhysics() {
+  for (const b of bodies) { b.px = b.position.x; b.py = b.position.y; if (b.pop > 0) b.pop = Math.max(0, b.pop - 0.1); }
+  Engine.update(engine, STEP); simT += STEP / 1000;
+  
+  for (const b of bodies) {
+    const v = b.velocity, s = Math.hypot(v.x, v.y) || 1;
+    // Анти-застревание: если объект застрял или почти остановился в углу, даем ему толчок
+    if (s < 0.3) {
+      const a = rnd(0, TAU);
+      Body.setVelocity(b, { x: Math.cos(a) * SPEED, y: Math.sin(a) * SPEED });
+      continue;
+    }
+    const targetSpd = SPEED * b.spd;
+    if (Math.abs(s - targetSpd) > 0.1) {
+      Body.setVelocity(b, { x: (v.x / s) * targetSpd, y: (v.y / s) * targetSpd });
+    }
+  }
+
+  for (let t = 0; t < 3; t++) if (counts[t] === TOTAL) { winner = t; endT = 0; trauma = 1; winSfx(t); $('restart').classList.add('show'); burst(W / 2, 1000, t); for (let i = 0; i < 50; i++) { const a = rnd(0, TAU), s = rnd(200, 900); parts.push({ x: W / 2, y: 1000, vx: Math.cos(a) * s, vy: Math.sin(a) * s, age: 0, life: rnd(0.5, 1.1), t }); } }
+}
+
+/* ---------- drawing ---------- */
+function txt(s, x, y, size, color, o) {
+  o = o || {}; ctx.font = `${o.w || 900} ${size}px ${FF}`; if (o.maxW) { const w = ctx.measureText(s).width; if (w > o.maxW) { size *= o.maxW / w; ctx.font = `${o.w || 900} ${size}px ${FF}`; } }
+  ctx.textAlign = o.align || 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round'; if (o.stroke) { ctx.lineWidth = o.stroke; ctx.strokeStyle = 'rgba(2,5,16,.9)'; ctx.strokeText(s, x, y); } ctx.fillStyle = color; ctx.fillText(s, x, y);
+}
+function rr(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+function draw(alpha, dt) {
+  clock += dt; trauma *= Math.pow(winner >= 0 ? 0.35 : 0.04, dt); const sh = trauma * trauma;
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(bgc, 0, 0); ctx.setTransform(K, 0, 0, K, 0, 0);
+  ctx.save(); ctx.translate(Math.sin(clock * 61) * 22 * sh, Math.cos(clock * 73) * 22 * sh);
+  ctx.strokeStyle = 'rgba(53,200,255,.14)'; ctx.lineWidth = 14; rr(AR.x, AR.y, AR.w, AR.h, 18); ctx.stroke(); ctx.strokeStyle = 'rgba(53,200,255,.85)'; ctx.lineWidth = 3; ctx.stroke();
+  const size = (R + PAD) * 2, half = size / 2;
+  for (const b of bodies) { const x = lerp(b.px, b.position.x, alpha), y = lerp(b.py, b.position.y, alpha), s = 1 + 0.45 * Math.sin(Math.min(1, b.pop) * Math.PI) * (b.pop > 0 ? 1 : 0); ctx.drawImage(sprites[b.rps], x - half * s, y - half * s, size * s, size * s); }
+  for (let i = rings.length - 1; i >= 0; i--) { const g = rings[i]; g.age += dt; const k = g.age / 0.4; if (k >= 1) { rings.splice(i, 1); continue; } ctx.strokeStyle = TYPES[g.t].col; ctx.globalAlpha = (1 - k) * 0.8; ctx.lineWidth = 4 * (1 - k) + 1; ctx.beginPath(); ctx.arc(g.x, g.y, R * (0.8 + 1.8 * k), 0, TAU); ctx.stroke(); }
+  for (let i = parts.length - 1; i >= 0; i--) { const p = parts[i]; p.age += dt; if (p.age >= p.life) { parts.splice(i, 1); continue; } p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= Math.pow(0.1, dt); p.vy *= Math.pow(0.1, dt); ctx.globalAlpha = 1 - p.age / p.life; ctx.fillStyle = TYPES[p.t].col; ctx.fillRect(p.x - 3, p.y - 3, 6, 6); } ctx.globalAlpha = 1;
+  ctx.restore();
+  
+  for (let t = 0; t < 3; t++) { const x = 60 + t * 330, T = TYPES[t], c = counts[t], lead = c === Math.max(...counts); ctx.fillStyle = T.col + (lead ? '30' : '18'); rr(x, 90, 300, 210, 24); ctx.fill(); ctx.strokeStyle = T.col; ctx.lineWidth = lead ? 5 : 3; ctx.stroke(); txt(T.emoji + ' ' + T.key + ':', x + 150, 135, 34, '#fff', { maxW: 270, w: 800 }); txt(String(c), x + 150, 225, 118, T.col, { stroke: 12 }); }
+  let bx = 60; for (let t = 0; t < 3; t++) { const w = counts[t] / TOTAL * 960; ctx.fillStyle = TYPES[t].col; ctx.fillRect(bx, 330, w, 22); bx += w; }
+  txt(winner >= 0 ? '' : 'WHO WINS? 👇', W / 2, 440, 56, '#fff', { stroke: 12 }); if (winner < 0) txt('COMMENT YOUR PICK 👇', W / 2, 1530, 40, '#ffd86b', { stroke: 10 });
+  if (winner >= 0) {
+    endT += dt; const a = clamp(endT / 0.4, 0, 1), T = TYPES[winner]; ctx.fillStyle = `rgba(3,5,18,${0.65 * a})`; ctx.fillRect(AR.x, AR.y, AR.w, AR.h);
+    ctx.save(); ctx.translate(W / 2 + Math.sin(clock * 61) * 14 * sh, 900 + Math.cos(clock * 73) * 14 * sh); const s = 1 + 0.2 * Math.pow(1 - clamp(endT / 0.35, 0, 1), 2) + 0.02 * Math.sin(clock * 6); ctx.scale(s, s); ctx.globalAlpha = a; txt(T.win, 0, 0, 104, T.col, { stroke: 18, maxW: 900 }); txt('ALL 30 FIGHTERS', 0, 96, 40, '#fff', { stroke: 10, w: 800 }); ctx.restore(); ctx.globalAlpha = 1;
+  }
+}
+function frame(ts) {
+  requestAnimationFrame(frame); const dt = clamp((ts - last) / 1000, 0.001, 0.1); last = ts; if (!started) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#040618'; ctx.fillRect(0, 0, cv.width, cv.height); return; }
+  if (winner < 0) { acc += dt * 1000; let n = 0; while (acc >= STEP && n < 4) { stepPhysics(); acc -= STEP; n++; if (winner >= 0) break; } if (acc > STEP * 4) acc = 0; }
+  draw(winner >= 0 ? 1 : clamp(acc / STEP, 0, 1), dt);
+}
+function begin() { try { initAudio(); } catch (e) { console.error(e); } try { const el = document.documentElement; (el.requestFullscreen || el.webkitRequestFullscreen || (() => {})).call(el); } catch (e) {} try { if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(() => {}); } catch (e) {} $('start').classList.add('hide'); init(); started = true; }
+$('go').addEventListener('click', begin); $('restart').addEventListener('click', () => { if (ac && ac.state === 'suspended') ac.resume(); init(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden && ac && ac.state === 'suspended') ac.resume(); });
+layout(); requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
