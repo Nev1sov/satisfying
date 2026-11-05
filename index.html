@@ -3,264 +3,143 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#000000">
-<title>Rock Paper Scissors Battle</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+<title>Cymatics</title>
 <style>
-*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-html,body{width:100%;height:100%;background:#000;overflow:hidden;touch-action:manipulation;-webkit-user-select:none;user-select:none;font-family:"Avenir Next","Helvetica Neue",Inter,system-ui,Arial,sans-serif}
-#wrap{position:fixed;inset:0;display:grid;place-items:center}
-#stage{position:relative}canvas{display:block;width:100%;height:100%}
-#emojiLayer{position:absolute;inset:0;pointer-events:none;overflow:hidden}
-.fighterEmoji{position:absolute;z-index:2;display:block;line-height:1;font-family:'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji',sans-serif;font-weight:normal;text-align:center;white-space:nowrap;transform:translate(-50%,-50%);-webkit-font-smoothing:antialiased}
-#restart{position:absolute;left:50%;top:62%;transform:translate(-50%,-50%);display:none;padding:2.2% 8%;font-size:clamp(18px,5vw,34px);font-weight:900;letter-spacing:.12em;color:#04101f;background:#35c8ff;border:none;border-radius:18px;cursor:pointer;animation:p 1.2s ease-in-out infinite}
-#restart.show{display:block}
-@keyframes p{50%{transform:translate(-50%,-50%) scale(1.07)}}
-#start{position:fixed;inset:0;z-index:10;background:rgba(4,6,20,.95);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:24px;text-align:center;color:#fff;transition:opacity .35s}
-#start.hide{opacity:0;pointer-events:none}
-#start h1{font-size:clamp(28px,7.5vw,48px);font-weight:900;letter-spacing:.06em;line-height:1.15}
-#start p{font-size:14px;color:#8fa6c8;max-width:340px;line-height:1.5}
-#go{padding:18px 44px;font-size:22px;font-weight:900;letter-spacing:.1em;color:#04101f;background:#35c8ff;border:none;border-radius:16px;animation:p 1.4s ease-in-out infinite}
+html,body{margin:0;height:100%;background:#000;overflow:hidden;touch-action:manipulation;-webkit-user-select:none;user-select:none}
+canvas{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);display:block}
+#s{position:fixed;inset:0;display:grid;place-items:center;background:#000;z-index:5;transition:opacity .5s}
+#s.h{opacity:0;pointer-events:none}
+#b{width:124px;height:124px;border-radius:50%;border:2px solid rgba(255,214,140,.55);background:rgba(255,214,140,.06);color:#fff;font:700 15px system-ui,sans-serif;letter-spacing:.22em}
 </style>
 </head>
 <body>
-<div id="wrap"><div id="stage"><canvas id="cv"></canvas><div id="emojiLayer"></div><button id="restart">RESTART</button></div></div>
-<div id="start"><h1>🗿 ✂️ 📄<br>WHO WINS?</h1><p>30 fighters. One survivor. Rock beats scissors, scissors beat paper, paper covers rock.</p><button id="go">TAP TO START</button><p id="err" style="font-size:12px">Start screen recording first, then tap START.<br>Turn the silent switch off for sound.</p></div>
+<canvas id="c"></canvas>
+<div id="s"><button id="b">TAP</button></div>
 <script>
 (() => {
 'use strict';
-/* ================= SETTINGS ================= */
-const COUNT = 10;                  // по 10 бойцов каждого вида (всего 30)
-const R = 38;                      // увеличенный радиус шариков
-const SPEED = 2.5;                 // плавная и спокойная скорость
-const COOLDOWN = 0.2;              // кулдаун конвертации
-const AR = { x: 50, y: 520, w: 980, h: 960 };   // арена
-const TYPES = [
-  { key: 'ROCKS',    win: 'ROCK WINS!',     emoji: '🗿', col: '#ff4d5e' },
-  { key: 'SCISSORS', win: 'SCISSORS WIN!',   emoji: '✂️', col: '#3da5ff' },
-  { key: 'PAPERS',   win: 'PAPER WINS!',     emoji: '📄', col: '#3dff8f' },
-];
-/* ============================================ */
-
-const $ = id => document.getElementById(id), clamp = (v, a, b) => Math.min(b, Math.max(a, v)), lerp = (a, b, t) => a + (b - a) * t, rnd = (a, b) => a + Math.random() * (b - a);
-const W = 1080, H = 1920, TAU = Math.PI * 2, TOTAL = COUNT * 3, STEP = 1000 / 60, FF = '"Avenir Next","Helvetica Neue",Inter,"Segoe UI",Arial,sans-serif';
-const cv = $('cv'), ctx = cv.getContext('2d', { alpha: false }), stage = $('stage'), emojiLayer = $('emojiLayer'); let K = 1, bgc, sprites = [], PAD = 20;
-if (typeof Matter === 'undefined') { $('err').textContent = 'Matter.js did not load. Check your internet connection and reload.'; $('go').style.display = 'none'; return; }
-const { Engine, Bodies, Body, Composite, Events } = Matter;
-
-/* ---------- canvas, background and sprites ---------- */
-function layout() {
-  const vv = window.visualViewport, vw = vv ? vv.width : innerWidth, vh = vv ? vv.height : innerHeight, s = Math.min(vw / W, vh / H), dpr = Math.min(devicePixelRatio || 1, 2);
-  stage.style.width = W * s + 'px'; stage.style.height = H * s + 'px'; cv.width = Math.round(W * s * dpr); cv.height = Math.round(H * s * dpr); K = cv.width / W;
-  const c = document.createElement('canvas'); c.width = cv.width; c.height = cv.height; const g = c.getContext('2d'); g.setTransform(K, 0, 0, K, 0, 0);
-  const gr = g.createLinearGradient(0, 0, 0, H); gr.addColorStop(0, '#040618'); gr.addColorStop(1, '#0a1030'); g.fillStyle = gr; g.fillRect(0, 0, W, H);
-  g.strokeStyle = 'rgba(120,170,255,.045)'; g.lineWidth = 1.5; g.beginPath(); for (let x = 0; x <= W; x += 90) { g.moveTo(x, 0); g.lineTo(x, H); } for (let y = 0; y <= H; y += 90) { g.moveTo(0, y); g.lineTo(W, y); } g.stroke();
-  g.fillStyle = 'rgba(255,255,255,.025)'; g.fillRect(AR.x, AR.y, AR.w, AR.h);
-  const v = g.createRadialGradient(W / 2, 1000, 450, W / 2, 1000, 1250); v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,.55)'); g.fillStyle = v; g.fillRect(0, 0, W, H); bgc = c;
-  
-  const size = (R + PAD) * 2; 
-  sprites = TYPES.map(t => {
-    const sc = document.createElement('canvas'); 
-    sc.width = Math.ceil(size * 2); 
-    sc.height = Math.ceil(size * 2); 
-    const q = sc.getContext('2d'); 
-    q.scale(2, 2); 
-    const m = size / 2;
-
-    const gl = q.createRadialGradient(m, m, R * 0.6, m, m, m); gl.addColorStop(0, t.col + '66'); gl.addColorStop(1, t.col + '00'); q.fillStyle = gl; q.fillRect(0, 0, size, size);
-    const bg = q.createRadialGradient(m - R * 0.3, m - R * 0.35, R * 0.1, m, m, R); bg.addColorStop(0, t.col + '55'); bg.addColorStop(1, '#060a1c'); q.fillStyle = bg; q.beginPath(); q.arc(m, m, R, 0, TAU); q.fill();
-    q.strokeStyle = t.col; q.lineWidth = 4; q.stroke(); 
-    
-    // Emoji are rendered as native HTML text overlays, not baked into Canvas sprites.
-    // This avoids missing system emoji glyphs in iOS Safari Canvas rendering.
-    return sc;
-  });
+/*SIM_START*/
+/* ---------- physics model: sand drifts to the still (nodal) lines of a vibrating plate ---------- */
+const G = 256, N = 40000, D = 1024, TAU = Math.PI * 2;
+const DR = .012, KN = .16, REST = .0011;       // drift per frame · noise vs. nodal spacing · resting jitter
+let rs = 123456789; const rand = () => { rs ^= rs << 13; rs ^= rs >>> 17; rs ^= rs << 5; return (rs >>> 0) / 4294967296; };
+function besJ(n, x) { let f = 1; for (let i = 2; i <= n; i++) f *= i; let t = Math.pow(x / 2, n) / f, s = t; for (let m = 1; m < 90; m++) { t *= -(x * x / 4) / (m * (m + n)); s += t; if (m > x && Math.abs(t) < 1e-15) break; } return s; }
+function zero(n, m) { let x = .05, prev = besJ(n, x), c = 0; for (; x < 45; x += .02) { const v = besJ(n, x + .02); if (prev * v < 0) { c++; if (c === m) { let a = x, b = x + .02; for (let i = 0; i < 40; i++) { const mid = (a + b) / 2; if (besJ(n, a) * besJ(n, mid) <= 0) b = mid; else a = mid; } return (a + b) / 2; } } prev = v; } return 10; }
+const PAT = [
+  { f: 110, mem: [0, 3], name: 'CONCENTRIC RINGS', sub: 'DEEP BASS', fact: 'SAND ESCAPES THE SHAKING AND GATHERS WHERE IT STAYS STILL' },
+  { f: 146.83, mem: [3, 1], name: 'THE STAR', sub: 'LOW HUM', fact: 'THESE STILL LINES ARE CALLED NODAL LINES' },
+  { f: 196, mem: [4, 2], name: 'THE FLOWER', sub: 'WARM TONE', fact: 'HIGHER FREQUENCY = MORE DETAILED PATTERN' },
+  { f: 246.94, sq: [2, 5], name: 'THE CHLADNI GRID', sub: 'MID TONE', fact: 'THIS IS CALLED CYMATICS: SOUND MADE VISIBLE' },
+  { f: 293.66, mem: [6, 3], name: 'THE MANDALA', sub: 'CLEAR TONE', fact: 'CHLADNI FIRST SHOWED THIS BACK IN 1787' },
+  { f: 392, pw: [3, 18], name: 'THE SNOWFLAKE', sub: 'HIGH TONE', fact: 'EVERY SHAPE IS PERFECTLY SYMMETRIC' },
+  { f: 493.88, mem: [8, 4], name: 'THE ROSETTE', sub: 'BRIGHT TONE', fact: 'SAME SAND. SAME PLATE. ONLY THE SOUND CHANGES.' },
+  { f: 587.33, pw: [4, 22], name: 'THE 8-POINT STAR', sub: 'SHARP TONE', fact: 'NOBODY DRAWS THIS. PHYSICS DOES.' },
+  { f: 880, pw: [6, 26], name: 'THE GRAND MANDALA', sub: 'PIERCING HIGH', fact: 'THE HIGHEST NOTE MAKES THE MOST COMPLEX SHAPE' }];
+function build(sp) {
+  const F = new Float32Array(G * G), GX = new Float32Array(G * G), GY = new Float32Array(G * G), h = 2 / (G - 1); let mx = 0, lam, spacing;
+  if (sp.mem) { lam = zero(sp.mem[0], sp.mem[1]); spacing = Math.PI / lam; } else if (sp.sq) spacing = 1 / Math.hypot(sp.sq[0], sp.sq[1]); else spacing = Math.PI / sp.pw[1];
+  for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) { const u = i * h - 1, v = j * h - 1, r = Math.hypot(u, v); let f = 0;
+    if (r <= 1) { if (sp.mem) f = besJ(sp.mem[0], lam * r) * Math.cos(sp.mem[0] * Math.atan2(v, u)); else if (sp.sq) { const a = sp.sq[0] * Math.PI, b = sp.sq[1] * Math.PI; f = Math.cos(a * u) * Math.cos(b * v) - Math.cos(b * u) * Math.cos(a * v); } else { const nd = sp.pw[0], k = sp.pw[1]; for (let d = 0; d < nd; d++) { const an = d * Math.PI / nd; f += Math.cos(k * (u * Math.cos(an) + v * Math.sin(an))); } } }
+    F[j * G + i] = f; if (Math.abs(f) > mx) mx = Math.abs(f); }
+  for (let p = 0; p < F.length; p++) F[p] /= mx; let mg = 1e-9;
+  for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) { const o = j * G + i, gx = (F[j * G + Math.min(G - 1, i + 1)] - F[j * G + Math.max(0, i - 1)]) / (2 * h), gy = (F[Math.min(G - 1, j + 1) * G + i] - F[Math.max(0, j - 1) * G + i]) / (2 * h); GX[o] = gx; GY[o] = gy; const m = Math.abs(F[o]) * Math.hypot(gx, gy); if (m > mg) mg = m; }
+  return { F, GX, GY, SD: DR / mg, SP: spacing };
 }
-let rz; const onR = () => { clearTimeout(rz); rz = setTimeout(layout, 100); }; addEventListener('resize', onR); addEventListener('orientationchange', onR);
+const PX = new Float32Array(N), PY = new Float32Array(N);
+function scatter() { for (let i = 0; i < N; i++) { const r = Math.sqrt(rand()) * .985, a = rand() * TAU; PX[i] = Math.cos(a) * r; PY[i] = Math.sin(a) * r; } }
+const ZERO = { F: new Float32Array(G * G), GX: new Float32Array(G * G), GY: new Float32Array(G * G), SD: 0, SP: .3 };
+let A = ZERO, B = ZERO, wB = 0;
+function stepSim(dt60, drive, vib) {
+  const half = (G - 1) / 2, a = 1 - wB, sd = (A.SD * a + B.SD * wB) * dt60, sk = (A.SP * a + B.SP * wB) * KN * drive * vib * dt60, s0 = REST * drive * dt60; let act = 0;
+  const F0 = A.F, X0 = A.GX, Y0 = A.GY, F1 = B.F, X1 = B.GX, Y1 = B.GY;
+  for (let i = 0; i < N; i++) { let x = PX[i], y = PY[i]; const id = (((y + 1) * half + .5) | 0) * G + (((x + 1) * half + .5) | 0); let f, gx, gy;
+    if (wB <= 0) { f = F0[id]; gx = X0[id]; gy = Y0[id]; } else if (wB >= 1) { f = F1[id]; gx = X1[id]; gy = Y1[id]; } else { f = F0[id] * a + F1[id] * wB; gx = X0[id] * a + X1[id] * wB; gy = Y0[id] * a + Y1[id] * wB; }
+    const am = f < 0 ? -f : f, k = sk * am + s0, dx = -sd * f * gx + (rand() - .5) * 2 * k, dy = -sd * f * gy + (rand() - .5) * 2 * k; x += dx; y += dy; const r2 = x * x + y * y; if (r2 > .98) { const s = .99 / Math.sqrt(r2); x *= s; y *= s; } PX[i] = x; PY[i] = y; if (i < 400) act += (dx < 0 ? -dx : dx) + (dy < 0 ? -dy : dy); }
+  return act / 400;
+}
+/* sand renderer: sub-pixel splats into an accumulation buffer, colour LUT (gold -> white) */
+const acc = new Uint16Array(D * D), img = new ImageData(D, D), out32 = new Uint32Array(img.data.buffer), LUT = new Uint32Array(1024);
+for (let v = 0; v < 1024; v++) { const b = 1 - Math.exp(-v / 150), lr = (a, c, t) => a + (c - a) * t; let r, g, bl; if (b < .5) { const t = b * 2; r = lr(150, 255, t); g = lr(85, 190, t); bl = lr(15, 80, t); } else { const t = (b - .5) * 2; r = lr(255, 255, t); g = lr(190, 248, t); bl = lr(80, 230, t); } const m = .35 + .65 * Math.min(1, b * 1.4); LUT[v] = v ? ((255 << 24) | ((bl * m | 0) << 16) | ((g * m | 0) << 8) | (r * m | 0)) >>> 0 : 0; }
+function renderSand(rot, w0) {
+  acc.fill(0); const ca = Math.cos(rot), sa = Math.sin(rot), Hh = D / 2 * .995, C = D / 2;
+  for (let i = 0; i < N; i++) { const px = PX[i], py = PY[i], X = (px * ca - py * sa) * Hh + C, Y = (px * sa + py * ca) * Hh + C, ix = X | 0, iy = Y | 0, fx = X - ix, fy = Y - iy, o = iy * D + ix; acc[o] += w0 * (1 - fx) * (1 - fy); acc[o + 1] += w0 * fx * (1 - fy); acc[o + D] += w0 * (1 - fx) * fy; acc[o + D + 1] += w0 * fx * fy; }
+  for (let p = 0, n = D * D; p < n; p++) { const v = acc[p]; out32[p] = LUT[v > 1023 ? 1023 : v]; }
+}
+/*SIM_END*/
 
-/* ---------- audio & melody synthesizer ---------- */
-let ac, master, noise, sfxT = 0, sfxN = 0, melodyTimer = null;
-const scale = [60, 63, 65, 67, 70, 72];
-const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
+/* ---------- layout ---------- */
+const W = 1080, H = 1920, CX = 540, CY = 820, PR = 430, FF = '"Avenir Next","Helvetica Neue",Inter,system-ui,Arial,sans-serif', GOLD = '#ffd88a';
+const cl = (v, a, b) => Math.min(b, Math.max(a, v)), sm = v => { v = cl(v, 0, 1); return v * v * (3 - 2 * v); };
+const $ = id => document.getElementById(id), c = $('c'), x = c.getContext('2d'); let K = 1;
+const pc = document.createElement('canvas'); pc.width = pc.height = D; const pcx = pc.getContext('2d');
+const b1 = document.createElement('canvas'); b1.width = b1.height = 256; const b1x = b1.getContext('2d'), b2 = document.createElement('canvas'); b2.width = b2.height = 96; const b2x = b2.getContext('2d');
+function layout() { const v = window.visualViewport, vw = v ? v.width : innerWidth, vh = v ? v.height : innerHeight, s = Math.min(vw / W, vh / H), d = Math.min(devicePixelRatio || 1, 3); c.style.width = W * s + 'px'; c.style.height = H * s + 'px'; c.width = Math.round(W * s * d); c.height = Math.round(H * s * d); K = c.width / W; }
+addEventListener('resize', layout);
+function ttl(s, py, fill, a = 1) { if (a < .01) return; x.save(); x.font = `800 72px ${FF}`; x.textAlign = 'center'; x.textBaseline = 'middle'; const w = x.measureText(s).width, k = w > 980 ? 980 / w : 1; x.translate(W / 2, py); x.scale(k, k); x.lineJoin = 'round'; x.lineWidth = 16; x.strokeStyle = fill; x.globalAlpha = .08 * a; x.strokeText(s, 0, 0); x.lineWidth = 6; x.strokeStyle = 'rgba(0,0,0,.45)'; x.globalAlpha = a; x.strokeText(s, 0, 0); x.fillStyle = fill; x.fillText(s, 0, 0); x.restore(); }
+function tx(s, px, py, sz, col, a, w = 800, mw = 980) { if (a < .01) return; x.save(); x.font = `${w} ${sz}px ${FF}`; x.textAlign = 'center'; x.textBaseline = 'middle'; const m = x.measureText(s).width, k = m > mw ? mw / m : 1; x.translate(px, py); x.scale(k, k); x.globalAlpha = a; x.fillStyle = col; x.fillText(s, 0, 0); x.restore(); }
+function bigNum(s, py, a) { x.save(); x.translate(CX, py); x.font = `800 170px ${FF}`; x.textAlign = 'center'; x.textBaseline = 'middle'; x.lineJoin = 'round'; x.lineWidth = 14; x.strokeStyle = 'rgb(255,206,120)'; x.globalAlpha = .07 * a; x.strokeText(s, 0, 0); x.globalAlpha = .84 * a; x.fillStyle = 'rgb(255,206,120)'; x.fillText(s, 0, 0); x.restore(); }
+const sp = s => s.split('').join(' ');
 
+/* ---------- audio ---------- */
+let ac, mg, rv, nb, padBus, tG, tO = [], hG;
+const CH = [[98, 123.5, 146.8, 185, 220], [82.4, 123.5, 146.8, 196, 220], [130.8, 164.8, 196, 246.9, 293.7], [73.4, 110, 146.8, 185, 220]];
+function out(n, w) { n.connect(mg); if (w) { const g = ac.createGain(); g.gain.value = w; n.connect(g); g.connect(rv); } }
+function tone(f, f2, d, g, ty = 'sine', w = .3, att = .006) { const n = ac.currentTime, o = ac.createOscillator(), v = ac.createGain(); o.type = ty; o.frequency.setValueAtTime(f, n); o.frequency.exponentialRampToValueAtTime(Math.max(18, f2), n + d); v.gain.setValueAtTime(0, n); v.gain.linearRampToValueAtTime(g, n + att); v.gain.exponentialRampToValueAtTime(.0001, n + d); o.connect(v); out(v, w); o.start(n); o.stop(n + d + .02); }
+function nsweep(d, f1, f2, g, w) { const n = ac.currentTime, s = ac.createBufferSource(), fl = ac.createBiquadFilter(), v = ac.createGain(); s.buffer = nb; fl.type = 'bandpass'; fl.Q.value = .8; fl.frequency.setValueAtTime(f1, n); fl.frequency.exponentialRampToValueAtTime(f2, n + d); v.gain.setValueAtTime(0, n); v.gain.linearRampToValueAtTime(g, n + d * .4); v.gain.exponentialRampToValueAtTime(.0001, n + d); s.connect(fl); fl.connect(v); out(v, w); s.start(n, Math.random() * 1.5); s.stop(n + d + .02); }
+function pad(fs) { const n = ac.currentTime, v = ac.createGain(), lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 700; lp.Q.value = 2; v.gain.setValueAtTime(0, n); v.gain.linearRampToValueAtTime(.05, n + 3.5); v.gain.linearRampToValueAtTime(.0001, n + 10); lp.connect(v); v.connect(padBus); fs.forEach(f => [-7, 7].forEach(dt => { const o = ac.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; o.detune.value = dt; o.connect(lp); o.start(n); o.stop(n + 10.2); })); }
 function initAudio() {
-  if (ac) { if (ac.state === 'suspended') ac.resume(); return; }
-  ac = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' }); 
-  try { navigator.audioSession.type = 'playback'; } catch (e) {}
-  const comp = ac.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 5; 
-  master = ac.createGain(); master.gain.value = 0.9; master.connect(comp); master.connect(ac.destination);
-  
-  noise = ac.createBuffer(1, ac.sampleRate, ac.sampleRate); const d = noise.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-  const s = ac.createBufferSource(); s.buffer = ac.createBuffer(1, 1, 22050); s.connect(ac.destination); s.start(0); 
-  if (ac.state === 'suspended') ac.resume();
-
-  if (melodyTimer) clearInterval(melodyTimer);
-  melodyTimer = setInterval(playBackgroundNote, 350);
+  ac = new (window.AudioContext || window.webkitAudioContext)(); try { navigator.audioSession.type = 'playback'; } catch (e) {}
+  const cp = ac.createDynamicsCompressor(); cp.threshold.value = -16; cp.ratio.value = 4; mg = ac.createGain(); mg.gain.value = .9; mg.connect(cp); cp.connect(ac.destination);
+  const L = (ac.sampleRate * 3.2) | 0, ir = ac.createBuffer(2, L, ac.sampleRate); for (let k = 0; k < 2; k++) { const d = ir.getChannelData(k); for (let i = 0; i < L; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / L, 2.8); } rv = ac.createConvolver(); rv.buffer = ir; rv.connect(mg);
+  nb = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate); const nd = nb.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+  padBus = ac.createGain(); padBus.gain.value = .7; padBus.connect(mg); const pw = ac.createGain(); pw.gain.value = .6; padBus.connect(pw); pw.connect(rv);
+  tG = ac.createGain(); tG.gain.value = 0; tG.connect(mg); const rw = ac.createGain(); rw.gain.value = .12; tG.connect(rw); rw.connect(rv);
+  [['sine', 1, 1], ['sine', .5, .9], ['triangle', 2, .38], ['sine', 3, .16]].forEach(([ty, m, g]) => { const o = ac.createOscillator(), gg = ac.createGain(); o.type = ty; o.frequency.value = 55 * m; gg.gain.value = g; o.connect(gg); gg.connect(tG); o.start(); tO.push([o, m]); });
+  const ns = ac.createBufferSource(); ns.buffer = nb; ns.loop = true; const hp = ac.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 2600; hG = ac.createGain(); hG.gain.value = 0; ns.connect(hp); hp.connect(hG); out(hG, .15); ns.start();
+  let k = 0; (function a() { pad(CH[k++ % 4]); setTimeout(a, 7000); })();
 }
+const setFreq = f => { if (!ac) return; const n = ac.currentTime; tO.forEach(([o, m]) => o.frequency.setTargetAtTime(f * m, n, .25)); };
+function patSound(i) { if (!ac) return; const f = PAT[i].f; setFreq(f); nsweep(1.1, 300, 4200, .22, .5); tone(80, 36, .7, .5, 'sine', .2); tone(f * 2, f * 2, 2.4, .07, 'sine', .8); tone(f * 3, f * 3, 1.9, .035, 'triangle', .8); [0, 1, 2].forEach(j => setTimeout(() => { const g = PAT[Math.min(8, Math.max(0, i - 2 + j))].f * 2; tone(g, g, 1.2, .035, 'sine', .9); }, 380 + j * 140)); }
+function finalSound() { if (!ac) return; tG.gain.setTargetAtTime(0, ac.currentTime, .4); tone(70, 22, 6, .7, 'sine', .4); nsweep(2.4, 200, 6000, .3, .7); [196, 293.7, 392, 493.9, 587.3, 880].forEach((f, i) => setTimeout(() => tone(f, f, 8, .06, 'sine', .9, .7), 500 + i * 150)); }
 
-function playBackgroundNote() {
-  if (!ac || ac.state !== 'running' || winner >= 0) return;
-  const t = ac.currentTime + 0.01;
-  const note = scale[Math.floor(Math.random() * scale.length)];
-  const f = mtof(note);
-  
-  const o = ac.createOscillator(), g = ac.createGain();
-  o.type = 'sine'; o.frequency.setValueAtTime(f, t);
-  g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(0.05, t + 0.02);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
-  o.connect(g); g.connect(master);
-  o.start(t); o.stop(t + 0.35);
+/* ---------- main ---------- */
+const NP = PAT.length, T0 = 2.2, PD = 5, TEND = T0 + NP * PD; let FLD = [], ph = 'idle', t0 = 0, last = 0, pi = -2, fd = 0, lfoP = 0, act = 0, rings = [], hiss = 0, ev = {}, ringN = 0;
+function startPattern(i) { A = i > 0 ? FLD[i - 1] : ZERO; B = FLD[i]; wB = 0; patSound(i); }
+function reset() { scatter(); A = ZERO; B = ZERO; wB = 0; pi = -2; fd = 0; lfoP = 0; rings = []; ev = {}; ringN = 0; if (ac) { tG.gain.cancelScheduledValues(ac.currentTime); tG.gain.setValueAtTime(0, ac.currentTime); setFreq(55); } }
+function drawPlate() {
+  const g = x.createRadialGradient(CX, CY, 0, CX, CY, PR); g.addColorStop(0, '#15130f'); g.addColorStop(.8, '#0a0908'); g.addColorStop(1, '#060606'); x.fillStyle = g; x.beginPath(); x.arc(CX, CY, PR, 0, 6.2832); x.fill();
+  x.strokeStyle = 'rgba(255,230,190,.035)'; x.lineWidth = 1; for (let r = 40; r < PR; r += 38) { x.beginPath(); x.arc(CX, CY, r, 0, 6.2832); x.stroke(); }
 }
-
-function osc(type, f0, f1, t, dur, vol) { const o = ac.createOscillator(), g = ac.createGain(); o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.02); }
-function nz(t, dur, f, q, vol) { const s = ac.createBufferSource(), b = ac.createBiquadFilter(), g = ac.createGain(); s.buffer = noise; b.type = 'bandpass'; b.frequency.value = f; b.Q.value = q; g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); s.connect(b); b.connect(g); g.connect(master); s.start(t, Math.random() * 0.5); s.stop(t + dur + 0.02); }
-function sfx(type, big) {
-  if (!ac || ac.state !== 'running') return; const n = performance.now(); sfxN = Math.min(8, sfxN + (n - sfxT) * 0.03); sfxT = n; if (sfxN < 1 && !big) return; sfxN--; const t = ac.currentTime + 0.003;
-  if (type === 0) { osc('sine', 150, 55, t, 0.16, 0.45); nz(t, 0.05, 900, 1, 0.12); } else if (type === 1) { nz(t, 0.05, 5200, 3, 0.22); osc('triangle', 2400, 1500, t, 0.05, 0.08); } else { nz(t, 0.14, 1700, 1.2, 0.2); osc('sine', 500, 330, t, 0.12, 0.08); }
+function frame(now) {
+  requestAnimationFrame(frame); x.setTransform(1, 0, 0, 1, 0, 0); x.fillStyle = '#000'; x.fillRect(0, 0, c.width, c.height); x.setTransform(K, 0, 0, K, 0, 0);
+  if (ph === 'idle') { drawPlate(); return; }
+  const t = Math.max(0, (now - t0) / 1000), dt = Math.min(.05, (now - last) / 1000 || .016); last = now; const cp = t < T0 ? -1 : Math.min(NP - 1, Math.floor((t - T0) / PD)), ts = t - T0 - Math.max(0, cp) * PD;
+  if (cp !== pi && cp >= 0) { pi = cp; startPattern(cp); } else if (cp < 0) pi = -1;
+  wB = cp >= 0 ? sm(ts / .9) : 0; const rate = 2.2 + .55 * Math.max(0, cp), pPrev = lfoP; lfoP += rate * dt; if (Math.floor(lfoP) > Math.floor(pPrev) && cp >= 0 && ringN++ % 1 === 0) rings.push({ t: t, a: .28 });
+  const lfo = .5 + .5 * Math.sin(TAU * lfoP - 1.5708), vib = .55 + .45 * lfo, drive = cp < 0 ? (t > 1 ? .22 + .5 * sm((t - 1) / 1.2) : .12) : 1 + 1.7 * Math.exp(-ts * 2.8);
+  act += (stepSim(dt * 60, drive, vib) - act) * (1 - Math.exp(-dt * 10));
+  /* audio follow */
+  if (ac) { const n = ac.currentTime, base = cp < 0 ? (t > 1 ? .05 + .05 * sm((t - 1) / 1.2) : 0) : .08 + .03 * cp; if (t < TEND + .5) tG.gain.setTargetAtTime(base * (.35 + .65 * lfo), n, .03); hG.gain.setTargetAtTime(cl(act * 6, 0, .22), n, .05); if (t > 1 && !ev.r) { ev.r = 1; setFreq(55); } if (t >= TEND && !ev.f) { ev.f = 1; finalSound(); } }
+  /* frequency readout glides */
+  const ft = cp >= 0 ? PAT[cp].f : 0; fd += (ft - fd) * (1 - Math.exp(-dt * 5));
+  /* sound-wave rings */
+  rings = rings.filter(r => t - r.t < 1.1); for (const r of rings) { const u = (t - r.t) / 1.1; x.strokeStyle = `rgba(255,214,150,${r.a * (1 - u) * (1 - u)})`; x.lineWidth = 2.5; x.beginPath(); x.arc(CX, CY, PR * (1.03 + .34 * u), 0, 6.2832); x.stroke(); }
+  /* plate + sand */
+  x.save(); x.translate(CX, CY); const zs = 1 + .005 * lfo * (cp >= 0 ? 1 : .2); x.scale(zs, zs); x.translate(-CX, -CY); drawPlate();
+  renderSand(t * .045, 58); pcx.putImageData(img, 0, 0); b1x.drawImage(pc, 0, 0, 256, 256); b2x.drawImage(b1, 0, 0, 96, 96); x.globalCompositeOperation = 'lighter'; x.imageSmoothingEnabled = true; x.imageSmoothingQuality = 'high';
+  x.drawImage(pc, CX - PR, CY - PR, PR * 2, PR * 2); x.globalAlpha = .55; x.drawImage(b1, CX - PR * 1.03, CY - PR * 1.03, PR * 2.06, PR * 2.06); x.globalAlpha = .4; x.drawImage(b2, CX - PR * 1.12, CY - PR * 1.12, PR * 2.24, PR * 2.24); x.globalAlpha = 1; x.globalCompositeOperation = 'source-over';
+  x.strokeStyle = `rgba(255,222,170,${.28 + .22 * lfo * (cp >= 0 ? 1 : 0)})`; x.lineWidth = 2.5; x.beginPath(); x.arc(CX, CY, PR + 1, 0, 6.2832); x.stroke(); x.fillStyle = '#3a3733'; x.beginPath(); x.arc(CX, CY, 8, 0, 6.2832); x.fill(); x.restore();
+  /* HUD */
+  const hook = t < T0, out2 = t > TEND + 1.2, P = PAT[Math.max(0, cp)];
+  if (hook) { const pop = 1 + .06 * Math.pow(1 - cl(t / .35, 0, 1), 2); x.save(); x.translate(CX, 0); x.scale(pop, pop); x.translate(-CX, 0); ttl('WHAT HAPPENS WHEN YOU', 215, '#ffffff'); ttl('PLAY BASS ON SAND? 🎵', 310, GOLD); x.restore(); }
+  else if (out2) { const a = sm((t - TEND - 1.2) / .6); ttl('SOUND CAN DRAW.', 215, '#ffffff', a); ttl('WHICH PATTERN WAS BEST? 👇', 310, GOLD, a); }
+  else { const a = sm(ts / .35); ttl(P.name, 215, '#ffffff', a); ttl(P.sub, 310, GOLD, a); }
+  bigNum(String(Math.round(fd)), 1330, 1); tx(sp('HERTZ'), CX, 1425, 34, '#9a948a', .85, 700); tx(out2 ? 'SAME SAND. 9 SOUNDS. 9 SHAPES.' : hook ? 'ONE PLATE · ONE LAYER OF SAND · NOTHING ELSE' : P.fact, CX, 1485, 34, '#e6dfd3', .95, 700);
+  for (let i = 0; i < NP; i++) { x.fillStyle = cp >= i ? 'rgba(255,206,120,.95)' : 'rgba(255,255,255,.2)'; x.beginPath(); x.arc(CX + (i - 4) * 46, 1545, 7, 0, 6.2832); x.fill(); }
 }
-function winSfx(type) { 
-  if (!ac) return; 
-  const t = ac.currentTime + 0.02; 
-  osc('sine', 130, 30, t, 1.2, 0.9); 
-  [0, 4, 7, 12].forEach((o, i) => osc('triangle', 440 * Math.pow(2, (o + [0, 2, 4][type]) / 12), 440 * Math.pow(2, (o + [0, 2, 4][type]) / 12) * 1.001, t + 0.05 + i * 0.09, 1.2, 0.18)); 
-}
-
-/* ---------- simulation ---------- */
-let engine, bodies = [], counts = [0, 0, 0], simT = 0, acc = 0, last = 0, started = false, winner = -1, endT = 0, trauma = 0, clock = 0;
-const parts = [], rings = [];
-function init() {
-  engine = Engine.create({ positionIterations: 6, velocityIterations: 4, enableSleeping: false }); engine.gravity.x = 0; engine.gravity.y = 0; engine.gravity.scale = 0;
-  const T = 500, o = { isStatic: true, restitution: 1, friction: 0, frictionStatic: 0 };
-  Composite.add(engine.world, [Bodies.rectangle(AR.x + AR.w / 2, AR.y - T / 2, AR.w + 2 * T, T, o), Bodies.rectangle(AR.x + AR.w / 2, AR.y + AR.h + T / 2, AR.w + 2 * T, T, o), Bodies.rectangle(AR.x - T / 2, AR.y + AR.h / 2, T, AR.h + 2 * T, o), Bodies.rectangle(AR.x + AR.w + T / 2, AR.y + AR.h / 2, T, AR.h + 2 * T, o)]);
-  bodies = []; emojiLayer.replaceChildren(); counts = [COUNT, COUNT, COUNT]; simT = 0; acc = 0; winner = -1; endT = 0; trauma = 0; parts.length = 0; rings.length = 0; $('restart').classList.remove('show');
-  
-  for (let i = 0; i < TOTAL; i++) {
-    let rps = Math.floor(i / COUNT); // 0: ROCKS, 1: SCISSORS, 2: PAPERS
-    let minX, maxX, minY, maxY;
-    
-    if (rps === 1) {
-      // ✂️ Ножницы: левый верхний угол
-      minX = AR.x + R + 10; maxX = AR.x + AR.w * 0.35;
-      minY = AR.y + R + 10; maxY = AR.y + AR.h * 0.35;
-    } else if (rps === 0) {
-      // 🗿 Камни: нижний правый угол
-      minX = AR.x + AR.w * 0.65; maxX = AR.x + AR.w - R - 10;
-      minY = AR.y + AR.h * 0.65; maxY = AR.y + AR.h - R - 10;
-    } else {
-      // 📄 Бумаги: верхний правый угол
-      minX = AR.x + AR.w * 0.65; maxX = AR.x + AR.w - R - 10;
-      minY = AR.y + R + 10; maxY = AR.y + AR.h * 0.35;
-    }
-
-    let x, y, tries = 0; 
-    do { 
-      x = rnd(minX, maxX); 
-      y = rnd(minY, maxY); 
-      tries++; 
-    } while (tries < 200 && bodies.some(b => Math.hypot(b.position.x - x, b.position.y - y) < R * 2.3));
-
-    const b = Bodies.circle(x, y, R, { restitution: 1, friction: 0, frictionStatic: 0, frictionAir: 0, slop: 0.02 }); 
-    Body.setInertia(b, Infinity); 
-    const a = rnd(0, TAU), sp = SPEED * rnd(0.9, 1.1); 
-    Body.setVelocity(b, { x: Math.cos(a) * sp, y: Math.sin(a) * sp });
-    
-    b.rps = rps; b.cd = 0; b.pop = 0; b.spd = sp / SPEED; b.px = x; b.py = y;
-    const emojiNode = document.createElement('span');
-    emojiNode.className = 'fighterEmoji';
-    emojiNode.textContent = TYPES[rps].emoji;
-    emojiLayer.appendChild(emojiNode);
-    b.emojiNode = emojiNode;
-    bodies.push(b);
-  }
-  Composite.add(engine.world, bodies);
-
-  Events.on(engine, 'collisionStart', ev => {
-    for (const p of ev.pairs) {
-      const a = p.bodyA, b = p.bodyB; if (a.isStatic || b.isStatic || a.rps === b.rps) continue;
-      let w, l; if ((a.rps + 1) % 3 === b.rps) { w = a; l = b; } else { w = b; l = a; }
-      if (l.cd > simT) continue;
-      counts[l.rps]--; counts[w.rps]++; l.rps = w.rps; if (l.emojiNode) l.emojiNode.textContent = TYPES[l.rps].emoji; l.cd = simT + COOLDOWN; l.pop = 1; burst(l.position.x, l.position.y, w.rps); sfx(w.rps); trauma = Math.min(0.5, trauma + 0.03);
-    }
-  });
-}
-function burst(x, y, t) { rings.push({ x, y, age: 0, t }); for (let i = 0; i < 6 && parts.length < 140; i++) { const a = rnd(0, TAU), s = rnd(120, 420); parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, age: 0, life: rnd(0.25, 0.55), t }); } }
-function stepPhysics() {
-  for (const b of bodies) { b.px = b.position.x; b.py = b.position.y; if (b.pop > 0) b.pop = Math.max(0, b.pop - 0.1); }
-  Engine.update(engine, STEP); simT += STEP / 1000;
-  
-  for (const b of bodies) {
-    const v = b.velocity, s = Math.hypot(v.x, v.y) || 1;
-    
-    if (s < 0.4 || isNaN(s) || b.position.x < AR.x + R || b.position.x > AR.x + AR.w - R || b.position.y < AR.y + R || b.position.y > AR.y + AR.h - R) {
-      const a = rnd(0, TAU);
-      Body.setVelocity(b, { x: Math.cos(a) * (SPEED * 1.5), y: Math.sin(a) * (SPEED * 1.5) });
-      continue;
-    }
-    
-    const targetSpd = SPEED * b.spd;
-    if (Math.abs(s - targetSpd) > 0.1) {
-      Body.setVelocity(b, { x: (v.x / s) * targetSpd, y: (v.y / s) * targetSpd });
-    }
-  }
-
-  for (let t = 0; t < 3; t++) if (counts[t] === TOTAL) { winner = t; endT = 0; trauma = 1; winSfx(t); $('restart').classList.add('show'); burst(W / 2, 1000, t); for (let i = 0; i < 50; i++) { const a = rnd(0, TAU), s = rnd(200, 900); parts.push({ x: W / 2, y: 1000, vx: Math.cos(a) * s, vy: Math.sin(a) * s, age: 0, life: rnd(0.5, 1.1), t }); } }
-}
-
-/* ---------- drawing ---------- */
-function txt(s, x, y, size, color, o) {
-  o = o || {}; ctx.font = `${o.w || 900} ${size}px ${FF}`; if (o.maxW) { const w = ctx.measureText(s).width; if (w > o.maxW) { size *= o.maxW / w; ctx.font = `${o.w || 900} ${size}px ${FF}`; } }
-  ctx.textAlign = o.align || 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round'; if (o.stroke) { ctx.lineWidth = o.stroke; ctx.strokeStyle = 'rgba(2,5,16,.9)'; ctx.strokeText(s, x, y); } ctx.fillStyle = color; ctx.fillText(s, x, y);
-}
-function rr(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
-function draw(alpha, dt) {
-  clock += dt; trauma *= Math.pow(winner >= 0 ? 0.35 : 0.04, dt); const sh = trauma * trauma;
-  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(bgc, 0, 0); ctx.setTransform(K, 0, 0, K, 0, 0);
-  ctx.save(); ctx.translate(Math.sin(clock * 61) * 22 * sh, Math.cos(clock * 73) * 22 * sh);
-  ctx.strokeStyle = 'rgba(53,200,255,.14)'; ctx.lineWidth = 14; rr(AR.x, AR.y, AR.w, AR.h, 18); ctx.stroke(); ctx.strokeStyle = 'rgba(53,200,255,.85)'; ctx.lineWidth = 3; ctx.stroke();
-  const size = (R + PAD) * 2, half = size / 2;
-  const shakeX = Math.sin(clock * 61) * 22 * sh, shakeY = Math.cos(clock * 73) * 22 * sh;
-  const cssScale = stage.clientWidth / W;
-  for (const b of bodies) {
-    const x = lerp(b.px, b.position.x, alpha), y = lerp(b.py, b.position.y, alpha), s = 1 + 0.45 * Math.sin(Math.min(1, b.pop) * Math.PI) * (b.pop > 0 ? 1 : 0);
-    ctx.drawImage(sprites[b.rps], x - half * s, y - half * s, size * s, size * s);
-    const node = b.emojiNode;
-    node.style.left = `${(x + shakeX) / W * 100}%`;
-    node.style.top = `${(y + shakeY) / H * 100}%`;
-    node.style.fontSize = `${R * 1.15 * cssScale}px`;
-    node.style.transform = `translate(-50%,-50%) scale(${s})`;
-  }
-  for (let i = rings.length - 1; i >= 0; i--) { const g = rings[i]; g.age += dt; const k = g.age / 0.4; if (k >= 1) { rings.splice(i, 1); continue; } ctx.strokeStyle = TYPES[g.t].col; ctx.globalAlpha = (1 - k) * 0.8; ctx.lineWidth = 4 * (1 - k) + 1; ctx.beginPath(); ctx.arc(g.x, g.y, R * (0.8 + 1.8 * k), 0, TAU); ctx.stroke(); }
-  for (let i = parts.length - 1; i >= 0; i--) { const p = parts[i]; p.age += dt; if (p.age >= p.life) { parts.splice(i, 1); continue; } p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= Math.pow(0.1, dt); p.vy *= Math.pow(0.1, dt); ctx.globalAlpha = 1 - p.age / p.life; ctx.fillStyle = TYPES[p.t].col; ctx.fillRect(p.x - 3, p.y - 3, 6, 6); } ctx.globalAlpha = 1;
-  ctx.restore();
-  
-  // Смещенная чуть левее верхняя панель (SCISSORS больше не вылезает)
-  const blockW = 310, gap = 30, startX = 40; 
-  for (let t = 0; t < 3; t++) { 
-    const x = startX + t * (blockW + gap), T = TYPES[t], c = counts[t], lead = c === Math.max(...counts); 
-    ctx.fillStyle = T.col + (lead ? '30' : '18'); 
-    rr(x, 90, blockW, 210, 24); ctx.fill(); 
-    ctx.strokeStyle = T.col; ctx.lineWidth = lead ? 5 : 3; ctx.stroke(); 
-    txt(T.key + ':', x + blockW / 2, 135, 30, '#fff', { maxW: blockW - 20, w: 800 }); 
-    txt(String(c), x + blockW / 2, 225, 118, T.col, { stroke: 12 }); 
-  }
-
-  let bx = 40; for (let t = 0; t < 3; t++) { const w = counts[t] / TOTAL * 990; ctx.fillStyle = TYPES[t].col; ctx.fillRect(bx, 330, w, 22); bx += w; }
-  txt(winner >= 0 ? '' : 'WHO WINS? 👇', W / 2, 440, 56, '#fff', { stroke: 12 }); if (winner < 0) txt('COMMENT YOUR PICK 👇', W / 2, 1530, 40, '#ffd86b', { stroke: 10 });
-  if (winner >= 0) {
-    endT += dt; const a = clamp(endT / 0.4, 0, 1), T = TYPES[winner]; ctx.fillStyle = `rgba(3,5,18,${0.65 * a})`; ctx.fillRect(AR.x, AR.y, AR.w, AR.h);
-    ctx.save(); ctx.translate(W / 2 + Math.sin(clock * 61) * 14 * sh, 900 + Math.cos(clock * 73) * 14 * sh); const s = 1 + 0.2 * Math.pow(1 - clamp(endT / 0.35, 0, 1), 2) + 0.02 * Math.sin(clock * 6); ctx.scale(s, s); ctx.globalAlpha = a; txt(T.win, 0, 0, 104, T.col, { stroke: 18, maxW: 900 }); txt('ALL 30 FIGHTERS', 0, 96, 40, '#fff', { stroke: 10, w: 800 }); ctx.restore(); ctx.globalAlpha = 1;
-  }
-}
-function frame(ts) {
-  requestAnimationFrame(frame); const dt = clamp((ts - last) / 1000, 0.001, 0.1); last = ts; if (!started) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#040618'; ctx.fillRect(0, 0, cv.width, cv.height); return; }
-  if (winner < 0) { acc += dt * 1000; let n = 0; while (acc >= STEP && n < 4) { stepPhysics(); acc -= STEP; n++; if (winner >= 0) break; } if (acc > STEP * 4) acc = 0; }
-  draw(winner >= 0 ? 1 : clamp(acc / STEP, 0, 1), dt);
-}
-function begin() { try { initAudio(); } catch (e) { console.error(e); } try { const el = document.documentElement; (el.requestFullscreen || el.webkitRequestFullscreen || (() => {})).call(el); } catch (e) {} try { if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(() => {}); } catch (e) {} $('start').classList.add('hide'); init(); started = true; }
-$('go').addEventListener('click', begin); $('restart').addEventListener('click', () => { if (ac && ac.state === 'suspended') ac.resume(); init(); });
+addEventListener('pointerdown', () => { if (ph === 'run' && (performance.now() - t0) / 1000 > TEND + 4.5) { t0 = performance.now(); reset(); } });
+$('b').addEventListener('click', () => { $('b').textContent = '...'; try { initAudio(); } catch (e) { console.error(e); } setTimeout(() => { FLD = PAT.map(build); scatter(); $('s').classList.add('h'); t0 = performance.now(); ph = 'run'; if (ac) setFreq(55); }, 30); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden && ac && ac.state === 'suspended') ac.resume(); });
 layout(); requestAnimationFrame(frame);
 })();
