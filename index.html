@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#000000">
+<title>Balls vs Linked Black Holes</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{width:100%;height:100%;background:#000;overflow:hidden;touch-action:manipulation;-webkit-user-select:none;user-select:none;font-family:"Avenir Next","Helvetica Neue",Inter,system-ui,Arial,sans-serif}
+#wrap{position:fixed;inset:0;display:grid;place-items:center}canvas{display:block}
+#start{position:fixed;inset:0;z-index:10;background:rgba(3,2,14,.95);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:24px;text-align:center;color:#fff;transition:opacity .35s}
+#start.hide{opacity:0;pointer-events:none}
+#start h1{font-size:clamp(28px,7.5vw,48px);font-weight:900;letter-spacing:.06em;line-height:1.15}#start h1 span{color:#b06cff}
+#start p{font-size:14px;color:#9aa0c8;max-width:340px;line-height:1.5}
+#go{padding:18px 44px;font-size:22px;font-weight:900;letter-spacing:.1em;color:#04101f;background:#35c8ff;border:none;border-radius:16px;animation:p 1.4s ease-in-out infinite}
+@keyframes p{50%{transform:scale(1.06)}}
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="cv"></canvas></div>
+<div id="start"><h1>BALLS <span>vs</span><br>LINKED BLACK HOLES</h1><p>1 ball. Every wall hit makes 1 more. Two linked black holes grow together!</p><button id="go">TAP TO START</button><p id="err" style="font-size:12px">Start screen recording first, then tap START.<br>Turn the silent switch off. Headphones = best bass.</p></div>
+<script>
+(() => {
+'use strict';
+/* ================= SETTINGS ================= */
+const MAX_BALLS = Infinity;          // Бесконечное число шариков
+const BALL_R = 20, BALL_SPEED = 2.8; // Плавные и крупные шарики
+const BH_R0 = 18, BH_SPEED = 4.5, GROWTH = 0.009; // Увеличен прирост размера (+0.9% за шар)
+const ARENA_R = 450;                // Радиус арены
+const CX = 540, CY = 1000;
+const AUTO_RESTART = true;
+/* ============================================ */
+
+const $ = id => document.getElementById(id), clamp = (v, a, b) => Math.min(b, Math.max(a, v)), lerp = (a, b, t) => a + (b - a) * t, rnd = (a, b) => a + Math.random() * (b - a);
+const W = 1080, H = 1920, TAU = Math.PI * 2, STEP = 1000 / 60, FF = '"Avenir Next","Helvetica Neue",Inter,"Segoe UI",Arial,sans-serif';
+const cv = $('cv'), ctx = cv.getContext('2d', { alpha: false }); let K = 1, bgc, ballSp;
+if (typeof Matter === 'undefined') { $('err').textContent = 'Matter.js did not load. Check your internet connection and reload.'; $('go').style.display = 'none'; return; }
+const { Engine, Bodies, Body, Composite, Events } = Matter;
+
+function layout() {
+  const vv = window.visualViewport, vw = vv ? vv.width : innerWidth, vh = vv ? vv.height : innerHeight, s = Math.min(vw / W, vh / H), dpr = Math.min(devicePixelRatio || 1, 2);
+  cv.style.width = W * s + 'px'; cv.style.height = H * s + 'px'; cv.width = Math.round(W * s * dpr); cv.height = Math.round(H * s * dpr); K = cv.width / W;
+  const c = document.createElement('canvas'); c.width = cv.width; c.height = cv.height; const g = c.getContext('2d'); g.setTransform(K, 0, 0, K, 0, 0);
+  g.fillStyle = '#020210'; g.fillRect(0, 0, W, H);
+  
+  for (const [x, y, r, col] of [[200, 500, 600, 'rgba(90,40,200,.08)'], [900, 1500, 700, 'rgba(30,90,220,.07)'], [700, 300, 500, 'rgba(160,40,180,.05)']]) { 
+    const n = g.createRadialGradient(x, y, 0, x, y, r); n.addColorStop(0, col); n.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = n; g.fillRect(0, 0, W, H); 
+  }
+  const ar = g.createRadialGradient(CX, CY, 0, CX, CY, ARENA_R); ar.addColorStop(0, 'rgba(8,14,40,.35)'); ar.addColorStop(1, 'rgba(4,8,28,.55)'); g.fillStyle = ar; g.beginPath(); g.arc(CX, CY, ARENA_R, 0, TAU); g.fill(); bgc = c;
+  
+  const size = (BALL_R + 10) * 2, sc = document.createElement('canvas'); sc.width = sc.height = Math.ceil(size * K); const q = sc.getContext('2d'); q.scale(sc.width / size, sc.width / size); const m = size / 2;
+  const gl = q.createRadialGradient(m, m, BALL_R * 0.5, m, m, m); gl.addColorStop(0, 'rgba(60,210,255,.35)'); gl.addColorStop(1, 'rgba(60,210,255,0)'); q.fillStyle = gl; q.fillRect(0, 0, size, size);
+  const bg = q.createRadialGradient(m - 4, m - 4, 1, m, m, BALL_R); bg.addColorStop(0, '#d6f6ff'); bg.addColorStop(0.5, '#35c8ff'); bg.addColorStop(1, '#0a6fb8'); q.fillStyle = bg; q.beginPath(); q.arc(m, m, BALL_R, 0, TAU); q.fill(); ballSp = sc;
+}
+let rz; const onR = () => { clearTimeout(rz); rz = setTimeout(layout, 100); }; addEventListener('resize', onR); addEventListener('orientationchange', onR);
+
+/* ---------- audio ---------- */
+let ac, master, rev, noise, drone, lp, popT = 0, popN = 0, eatT = 0, eatN = 0; const SC = [0, 2, 4, 7, 9];
+function initAudio() {
+  ac = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' }); try { navigator.audioSession.type = 'playback'; } catch (e) {}
+  const comp = ac.createDynamicsCompressor(); comp.threshold.value = -12; comp.ratio.value = 6; comp.attack.value = 0.003; comp.release.value = 0.2; master = ac.createGain(); master.gain.value = 0.95; master.connect(comp); master.connect(ac.destination);
+  const len = (ac.sampleRate * 2) | 0, ir = ac.createBuffer(2, len, ac.sampleRate); for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6); }
+  const cn = ac.createConvolver(); cn.buffer = ir; rev = ac.createGain(); rev.gain.value = 0.25; rev.connect(cn); cn.connect(master);
+  noise = ac.createBuffer(1, ac.sampleRate, ac.sampleRate); { const d = noise.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; }
+  const o1 = ac.createOscillator(), o2 = ac.createOscillator(), f = ac.createBiquadFilter(), g = ac.createGain(), lfo = ac.createOscillator(), lg = ac.createGain();
+  o1.type = 'sawtooth'; o2.type = 'sine'; f.type = 'lowpass'; f.frequency.value = 140; f.Q.value = 3; g.gain.value = 0.0001; lfo.frequency.value = 2.2; lg.gain.value = 60; lfo.connect(lg); lg.connect(f.frequency);
+  o1.connect(f); o2.connect(f); f.connect(g); g.connect(master); o1.start(); o2.start(); lfo.start(); drone = { o1, o2, f, g, lfo }; lp = f;
+  const s = ac.createBufferSource(); s.buffer = ac.createBuffer(1, 1, 22050); s.connect(ac.destination); s.start(0); if (ac.state === 'suspended') ac.resume();
+}
+function osc(type, f0, f1, t, dur, vol, wet) { const o = ac.createOscillator(), g = ac.createGain(); o.type = type; o.frequency.setValueAtTime(f0, t); if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t + dur * 0.8); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + Math.min(0.006, dur / 4)); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); o.connect(g); g.connect(master); if (wet) g.connect(rev); o.start(t); o.stop(t + dur + 0.03); }
+function nz(t, dur, type, f, q, vol, to) { const s = ac.createBufferSource(), b = ac.createBiquadFilter(), g = ac.createGain(); s.buffer = noise; s.loop = true; b.type = type; b.Q.value = q; b.frequency.setValueAtTime(f, t); if (to) b.frequency.exponentialRampToValueAtTime(to, t + dur); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + Math.min(0.01, dur / 3)); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); s.connect(b); b.connect(g); g.connect(master); g.connect(rev); s.start(t, Math.random() * 0.5); s.stop(t + dur + 0.03); }
+function popSfx(n) { if (!ac || ac.state !== 'running') return; const now = performance.now(); popN = Math.min(6, popN + (now - popT) * 0.025); popT = now; if (popN < 1) return; popN--; const t = ac.currentTime + 0.003, m = 72 + SC[Math.floor(Math.random() * 5)] + 12 * (n % 2), f = 440 * Math.pow(2, (m - 69) / 12); osc('sine', f * 0.7, f, t, 0.09, 0.16, 1); osc('sine', f * 2, f * 2.4, t, 0.05, 0.04, 0); }
+function eatSfx() {
+  if (!ac || ac.state !== 'running') return; const now = performance.now(); eatN = Math.min(5, eatN + (now - eatT) * 0.02); eatT = now; if (eatN < 1) return; eatN--; const t = ac.currentTime + 0.003, sz = clamp(bh1.r / ARENA_R, 0, 1), f = 230 * (1 - 0.7 * sz);
+  osc('sine', f, f * 0.28, t, 0.2, 0.42, 1); nz(t, 0.12, 'lowpass', 500 * (1 - 0.5 * sz), 1.5, 0.28, 120); osc('triangle', f * 2.2, f * 0.6, t + 0.02, 0.1, 0.1, 0);
+}
+function droneUpdate(sz, mode) {
+  if (!ac) return; const t = ac.currentTime, f = lerp(70, 26, clamp(sz, 0, 1));
+  drone.o1.frequency.setTargetAtTime(f, t, 0.1); drone.o2.frequency.setTargetAtTime(f * 0.5, t, 0.1); drone.f.frequency.setTargetAtTime(lerp(180, 90, clamp(sz, 0, 1)), t, 0.1); drone.lfo.frequency.setTargetAtTime(2 + 5 * clamp(sz, 0, 1), t, 0.2);
+  drone.g.gain.setTargetAtTime(mode === 0 ? 0.0001 : mode === 1 ? 0.06 + 0.2 * clamp(sz, 0, 1) : 0.0001, t, 0.08);
+}
+const boom = (big) => { if (!ac) return; const t = ac.currentTime + 0.01; osc('sine', big ? 100 : 160, big ? 16 : 30, t, big ? 3 : 1.4, 1, 1); nz(t, big ? 2.2 : 1, 'lowpass', 1800, 0.8, 0.8, 80); };
+
+/* ---------- simulation ---------- */
+let engine, balls = [], bh1, bh2, simT = 0, acc = 0, last = 0, started = false, phase = 'play', pt = 0, trauma = 0, clock = 0, endHandled = false, eaten = 0;
+const fx = [], sucked = [], stars = Array.from({ length: 150 }, () => { const a = rnd(0, TAU), r = Math.sqrt(Math.random()) * 1300; return { a, r, x: 0, y: 0, s: rnd(0.8, 2.0), p: rnd(0, 6.28) }; });
+
+function mkBall(x, y, ang) { 
+  const b = Bodies.circle(x, y, BALL_R, { restitution: 1, friction: 0, frictionStatic: 0, frictionAir: 0, slop: 0.02, label: 'ball' }); 
+  Body.setInertia(b, Infinity); 
+  Body.setVelocity(b, { x: Math.cos(ang) * BALL_SPEED, y: Math.sin(ang) * BALL_SPEED }); 
+  b.cd = simT + 0.25; b.px = x; b.py = y; balls.push(b); Composite.add(engine.world, b); return b; 
+}
+
+function init() {
+  engine = Engine.create({ positionIterations: 4, velocityIterations: 3, enableSleeping: false }); engine.gravity.x = 0; engine.gravity.y = 0; engine.gravity.scale = 0;
+  const N = 72, T = 240, seg = TAU * (ARENA_R + T / 2) / N * 1.2, walls = []; 
+  for (let i = 0; i < N; i++) { 
+    const a = i / N * TAU, d = ARENA_R + T / 2; 
+    walls.push(Bodies.rectangle(CX + Math.cos(a) * d, CY + Math.sin(a) * d, T, seg, { isStatic: true, restitution: 1, friction: 0, frictionStatic: 0, angle: a, label: 'wall' })); 
+  }
+  Composite.add(engine.world, walls); 
+  balls = []; fx.length = 0; sucked.length = 0; simT = 0; acc = 0; phase = 'play'; pt = 0; trauma = 0; endHandled = false; eaten = 0;
+  
+  const ba1 = rnd(0, TAU), bb1 = rnd(0, TAU), rr1 = ARENA_R * 0.3; 
+  bh1 = { x: CX + Math.cos(ba1) * rr1, y: CY + Math.sin(ba1) * rr1, px: 0, py: 0, vx: Math.cos(bb1) * BH_SPEED, vy: Math.sin(bb1) * BH_SPEED, r: BH_R0, rot: 0 }; 
+  bh1.px = bh1.x; bh1.py = bh1.y;
+
+  const ba2 = rnd(0, TAU), bb2 = rnd(0, TAU), rr2 = ARENA_R * 0.3; 
+  bh2 = { x: CX + Math.cos(ba2 + Math.PI) * rr2, y: CY + Math.sin(ba2 + Math.PI) * rr2, px: 0, py: 0, vx: Math.cos(bb2) * BH_SPEED, vy: Math.sin(bb2) * BH_SPEED, r: BH_R0, rot: Math.PI }; 
+  bh2.px = bh2.x; bh2.py = bh2.y;
+  
+  mkBall(CX, CY, rnd(0, TAU)); balls[0].cd = 0;
+  
+  Events.on(engine, 'collisionStart', ev => { 
+    for (const p of ev.pairs) { 
+      const a = p.bodyA, b = p.bodyB, ball = a.label === 'wall' && b.label === 'ball' ? b : b.label === 'wall' && a.label === 'ball' ? a : null; 
+      if (ball && ball.cd <= simT && phase === 'play') multiply(ball); 
+    } 
+  });
+}
+
+function multiply(ball) {
+  ball.cd = simT + 0.2; 
+  const dx = CX - ball.position.x, dy = CY - ball.position.y, d = Math.hypot(dx, dy) || 1, ix = dx / d, iy = dy / d; 
+  
+  if (balls.length < MAX_BALLS) {
+    const s = Math.random() < 0.5 ? 1 : -1;
+    const x = ball.position.x + ix * BALL_R * 1.7 - iy * s * BALL_R * 2.5, 
+          y = ball.position.y + iy * BALL_R * 1.7 + ix * s * BALL_R * 2.5, 
+          a = Math.atan2(iy, ix) + s * rnd(0.3, 0.9) + rnd(-0.2, 0.2); 
+    mkBall(x, y, a);
+    fx.push({ k: 'ring', x: ball.position.x, y: ball.position.y, age: 0, life: 0.35, c: '90,215,255' }); 
+    popSfx(balls.length); 
+  }
+}
+
+function eat(i, bhTarget) {
+  const b = balls[i]; 
+  if (sucked.length < 120) sucked.push({ x: b.position.x, y: b.position.y, age: 0, targetBh: bhTarget }); 
+  fx.push({ k: 'ring', x: b.position.x, y: b.position.y, age: 0, life: 0.3, c: '200,150,255' });
+  Composite.remove(engine.world, b); 
+  balls[i] = balls[balls.length - 1]; balls.pop(); 
+  
+  // Связанное увеличение: увеличиваем ОБЕ черные дыры одновременно!
+  bh1.r *= (1 + GROWTH);
+  bh2.r *= (1 + GROWTH);
+  
+  eaten++; 
+  trauma = Math.min(0.4, trauma + 0.008 + 0.015 * clamp(bh1.r / ARENA_R, 0, 1)); 
+  eatSfx();
+}
+
+function stepPhysics() {
+  for (const b of balls) { b.px = b.position.x; b.py = b.position.y; } 
+  bh1.px = bh1.x; bh1.py = bh1.y; 
+  bh2.px = bh2.x; bh2.py = bh2.y;
+
+  if (phase === 'play') {
+    Engine.update(engine, STEP); 
+    simT += STEP / 1000; 
+    bh1.rot += 0.02; 
+    bh2.rot += 0.02;
+
+    const pull1 = bh1.r * 4, pull2 = bh2.r * 4, er = BALL_R * 0.4;
+    
+    for (let i = balls.length - 1; i >= 0; i--) {
+      const b = balls[i];
+      const dx1 = bh1.x - b.position.x, dy1 = bh1.y - b.position.y, d1 = Math.hypot(dx1, dy1) || 1;
+      const dx2 = bh2.x - b.position.x, dy2 = bh2.y - b.position.y, d2 = Math.hypot(dx2, dy2) || 1;
+
+      if (d1 < bh1.r + er) { eat(i, bh1); continue; }
+      if (d2 < bh2.r + er) { eat(i, bh2); continue; }
+
+      let vx = b.velocity.x, vy = b.velocity.y; 
+      if (d1 < pull1) { const k = (1 - d1 / pull1) * 0.4; vx += dx1 / d1 * k; vy += dy1 / d1 * k; }
+      if (d2 < pull2) { const k = (1 - d2 / pull2) * 0.4; vx += dx2 / d2 * k; vy += dy2 / d2 * k; }
+
+      const s = Math.hypot(vx, vy) || 1, k2 = BALL_SPEED / s; 
+      Body.setVelocity(b, { x: vx * k2, y: vy * k2 });
+    }
+
+    bh1.x += bh1.vx; bh1.y += bh1.vy; 
+    let ex1 = bh1.x - CX, ey1 = bh1.y - CY, ed1 = Math.hypot(ex1, ey1), lim1 = ARENA_R - bh1.r;
+    if (lim1 > 4 && ed1 > lim1) { 
+      const nx = ex1 / ed1, ny = ey1 / ed1, dot = bh1.vx * nx + bh1.vy * ny; 
+      if (dot > 0) { bh1.vx -= 2 * dot * nx; bh1.vy -= 2 * dot * ny; } 
+      bh1.x = CX + nx * lim1; bh1.y = CY + ny * lim1; 
+    }
+
+    bh2.x += bh2.vx; bh2.y += bh2.vy; 
+    let ex2 = bh2.x - CX, ey2 = bh2.y - CY, ed2 = Math.hypot(ex2, ey2), lim2 = ARENA_R - bh2.r;
+    if (lim2 > 4 && ed2 > lim2) { 
+      const nx = ex2 / ed2, ny = ey2 / ed2, dot = bh2.vx * nx + bh2.vy * ny; 
+      if (dot > 0) { bh2.vx -= 2 * dot * nx; bh2.vy -= 2 * dot * ny; } 
+      bh2.x = CX + nx * lim2; bh2.y = CY + ny * lim2; 
+    }
+
+    if (bh1.r >= ARENA_R - 6 || bh2.r >= ARENA_R - 6) { 
+      phase = 'end'; pt = 0; boom(false); trauma = 0.5; 
+      for (let i = balls.length - 1; i >= 0; i--) { Composite.remove(engine.world, balls[i]); } 
+      balls.length = 0; 
+    }
+  }
+}
+
+/* ---------- drawing ---------- */
+function txt(s, x, y, size, color, o) {
+  o = o || {}; ctx.font = `${o.w || 900} ${size}px ${FF}`; if (o.maxW) { const w = ctx.measureText(s).width; if (w > o.maxW) { size *= o.maxW / w; ctx.font = `${o.w || 900} ${size}px ${FF}`; } }
+  ctx.textAlign = o.align || 'center'; ctx.textBaseline = 'middle'; ctx.globalAlpha = o.a == null ? 1 : o.a; ctx.lineJoin = 'round'; if (o.stroke) { ctx.lineWidth = o.stroke; ctx.strokeStyle = 'rgba(2,2,12,.9)'; ctx.strokeText(s, x, y); } ctx.fillStyle = color; ctx.fillText(s, x, y); ctx.globalAlpha = 1;
+}
+function rr(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+
+function drawBH(x, y, r, rot, a) {
+  ctx.save(); ctx.globalAlpha = a; ctx.globalCompositeOperation = 'lighter'; 
+  const g = ctx.createRadialGradient(x, y, r * 0.9, x, y, r * 2.2); 
+  g.addColorStop(0, 'rgba(160,90,255,.3)'); g.addColorStop(0.4, 'rgba(110,50,220,.1)'); g.addColorStop(1, 'rgba(80,30,200,0)'); 
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r * 2.2, 0, TAU); ctx.fill(); ctx.globalCompositeOperation = 'source-over';
+  
+  const lw = Math.max(2, r * 0.05); 
+  ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill(); 
+  ctx.strokeStyle = 'rgba(225,195,255,.7)'; ctx.lineWidth = lw * 0.7; ctx.beginPath(); ctx.arc(x, y, r * 1.02, 0, TAU); ctx.stroke();
+  ctx.restore();
+}
+
+function drawStars(dt) {
+  ctx.fillStyle = '#fff'; 
+  for (const s of stars) {
+    s.a += dt * 0.002;
+    const x = CX + Math.cos(s.a) * s.r, y = CY + Math.sin(s.a) * s.r; 
+    if (x < -20 || x > W + 20 || y < -20 || y > H + 20) continue; 
+    ctx.globalAlpha = 0.2 + 0.3 * Math.abs(Math.sin(clock * 1.3 + s.p)); 
+    ctx.fillRect(x, y, s.s, s.s);
+  } 
+  ctx.globalAlpha = 1;
+}
+
+const fmtN = n => n.toLocaleString('en-US');
+
+function draw(alpha, dt) {
+  clock += dt; pt += dt; trauma *= Math.pow(0.05, dt); const sh = trauma * trauma;
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(bgc, 0, 0); ctx.setTransform(K, 0, 0, K, 0, 0);
+  ctx.save(); ctx.translate(Math.sin(clock * 61) * 16 * sh, Math.cos(clock * 73) * 16 * sh);
+  
+  drawStars(dt);
+  
+  const arA = phase === 'play' ? 1 : clamp(1 - pt / 1.4, 0, 1);
+  if (arA > 0) { 
+    ctx.globalAlpha = arA; 
+    ctx.strokeStyle = 'rgba(53,200,255,.1)'; ctx.lineWidth = 14; ctx.beginPath(); ctx.arc(CX, CY, ARENA_R + 6, 0, TAU); ctx.stroke(); 
+    ctx.strokeStyle = 'rgba(80,215,255,.7)'; ctx.lineWidth = 3; ctx.stroke(); 
+    ctx.globalAlpha = 1; 
+  }
+  
+  if (phase === 'play') {
+    const sz = (BALL_R + 10) * 2, h = sz / 2; 
+    for (const b of balls) ctx.drawImage(ballSp, lerp(b.px, b.position.x, alpha) - h, lerp(b.py, b.position.y, alpha) - h, sz, sz);
+    
+    for (let i = sucked.length - 1; i >= 0; i--) { 
+      const p = sucked[i]; p.age += dt; const k = p.age / 0.28; 
+      if (k >= 1) { sucked.splice(i, 1); continue; } 
+      const bhT = p.targetBh;
+      const a = Math.atan2(p.y - bhT.y, p.x - bhT.x) + k * 2.4, d = Math.hypot(p.x - bhT.x, p.y - bhT.y) * (1 - k), s = (1 - k) * sz; 
+      ctx.globalAlpha = 1 - k * 0.5; ctx.drawImage(ballSp, bhT.x + Math.cos(a) * d - s / 2, bhT.y + Math.sin(a) * d - s / 2, s, s); 
+    } 
+    ctx.globalAlpha = 1;
+    
+    for (let i = fx.length - 1; i >= 0; i--) { 
+      const f = fx[i]; f.age += dt; const k = f.age / f.life; 
+      if (k >= 1) { fx.splice(i, 1); continue; } 
+      ctx.strokeStyle = `rgba(${f.c},${1 - k})`; ctx.lineWidth = 2 * (1 - k) + 1; ctx.beginPath(); ctx.arc(f.x, f.y, 6 + 20 * k, 0, TAU); ctx.stroke(); 
+    }
+    
+    drawBH(lerp(bh1.px, bh1.x, alpha), lerp(bh1.py, bh1.y, alpha), bh1.r, bh1.rot, 1);
+    drawBH(lerp(bh2.px, bh2.x, alpha), lerp(bh2.py, bh2.y, alpha), bh2.r, bh2.rot, 1);
+  }
+
+  if (phase === 'end') {
+    drawBH(CX, CY, ARENA_R, clock * 0.2, 1);
+  }
+
+  ctx.restore();
+  hud(dt);
+}
+
+function hud(dt) {
+  const play = phase === 'play', sz = bh1.r / ARENA_R * 100;
+  if (play) {
+    ctx.fillStyle = 'rgba(53,200,255,.08)'; rr(60, 90, 450, 220, 26); ctx.fill(); ctx.strokeStyle = 'rgba(53,200,255,.4)'; ctx.lineWidth = 2; ctx.stroke(); txt('BALLS', 285, 136, 36, '#9fe3ff', { w: 800 }); txt(fmtN(balls.length), 285, 232, 120, '#fff', { stroke: 12, maxW: 410 });
+    ctx.fillStyle = 'rgba(176,108,255,.08)'; rr(570, 90, 450, 220, 26); ctx.fill(); ctx.strokeStyle = 'rgba(176,108,255,.4)'; ctx.lineWidth = 2; ctx.stroke(); txt('HOLES SIZE', 795, 136, 36, '#d8b8ff', { w: 800, maxW: 410 }); txt(fmtN(Math.round(sz)) + '%', 795, 232, 120, '#fff', { stroke: 12, maxW: 410 });
+    
+    txt('1 BALL → EVERY WALL HIT = +1 BALL', W / 2, 400, 36, '#bcd', { stroke: 8, maxW: 980 }); 
+    txt('LINKED BLACK HOLES ARE GROWING! 👇', W / 2, 1530, 36, '#ffd86b', { stroke: 8, maxW: 1000 }); 
+  }
+  
+  if (phase === 'end') {
+    txt('ARENA COMPLETELY FILLED', W / 2, 850, 56, '#fff', { stroke: 12, maxW: 980 });
+    txt('BLACK HOLES WON', W / 2, 950, 40, '#b06cff', { stroke: 8, maxW: 980 });
+    if (pt > 3.0 && AUTO_RESTART && !endHandled) { 
+      endHandled = true; 
+      init(); 
+    } 
+  }
+}
+
+function frame(ts) {
+  requestAnimationFrame(frame); const dt = clamp((ts - last) / 1000, 0.001, 0.1); last = ts;
+  if (!started) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#020210'; ctx.fillRect(0, 0, cv.width, cv.height); return; }
+  acc += dt * 1000; let n = 0; while (acc >= STEP && n < 4) { stepPhysics(); acc -= STEP; n++; } if (acc > STEP * 4) acc = 0; 
+  draw(clamp(acc / STEP, 0, 1), dt); 
+  droneUpdate(phase === 'play' ? bh1.r / ARENA_R : 1, phase === 'play' ? 1 : 0);
+}
+
+function begin() { try { initAudio(); } catch (e) { console.error(e); } try { const el = document.documentElement; (el.requestFullscreen || el.webkitRequestFullscreen || (() => {})).call(el); } catch (e) {} try { if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(() => {}); } catch (e) {} $('start').classList.add('hide'); init(); started = true; }
+$('go').addEventListener('click', begin); document.addEventListener('visibilitychange', () => { if (!document.hidden && ac && ac.state === 'suspended') ac.resume(); });
+layout(); requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
