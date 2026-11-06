@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#030308">
+<title>RING ESCAPE — Satisfying Lab</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#030308;color:#fff;font-family:Arial,Helvetica,sans-serif}
+canvas{display:block;width:100%;height:100%;touch-action:manipulation}
+#hud{position:fixed;inset:0;pointer-events:none}
+#brand{position:absolute;top:max(22px,env(safe-area-inset-top));width:100%;text-align:center;font-size:10px;letter-spacing:.34em;color:#9a91b7;font-weight:700}
+#headline{position:absolute;top:calc(max(22px,env(safe-area-inset-top)) + 22px);width:100%;text-align:center;font-size:clamp(21px,5.5vw,32px);font-weight:900;letter-spacing:.1em;text-shadow:0 0 14px #9b22ff55}
+#stats{position:absolute;top:calc(max(22px,env(safe-area-inset-top)) + 65px);width:100%;display:flex;justify-content:center;gap:30px;color:#8d87a5;font-size:9px;letter-spacing:.18em}
+#stats b{display:block;color:#f6edff;font-size:18px;letter-spacing:.04em;text-align:center;margin-top:4px}
+#hint{position:absolute;bottom:max(28px,env(safe-area-inset-bottom));width:100%;text-align:center;font-size:9px;letter-spacing:.2em;color:#77718e}
+#start,#sound{position:fixed;z-index:3;border:1px solid #a64dff88;background:#10091acc;color:#f4eaff;letter-spacing:.16em;font-weight:800}
+#start{left:50%;top:50%;transform:translate(-50%,-50%);padding:15px 27px;border-radius:40px;font-size:12px;box-shadow:0 0 20px #a020ff24}
+#sound{right:14px;top:max(15px,env(safe-area-inset-top));padding:8px 11px;border-radius:30px;font-size:9px}
+</style>
+</head>
+<body>
+<canvas id="screen"></canvas>
+<div id="hud">
+  <div id="brand">SATISFYING LAB</div>
+  <div id="headline">RING ESCAPE</div>
+  <div id="stats">
+    <div>RINGS LEFT<b id="left">20</b></div>
+    <div>ESCAPED<b id="out">00</b></div>
+  </div>
+  <div id="hint">CAN THE BALL ESCAPE ALL 20 RINGS?</div>
+</div>
+<button id="sound">SOUND ON</button>
+<button id="start">TAP TO START</button>
+<script>
+(()=>{'use strict';
+const canvas=document.getElementById('screen'),ctx=canvas.getContext('2d',{alpha:false});
+const $=id=>document.getElementById(id),TAU=Math.PI*2;
+let w=0,h=0,dpr=1,cx=0,cy=0,outer=0,inner=0,spacing=0;
+const RING_COUNT=20;
+let rings=[],particles=[],stars=[],active=0,escaped=0,started=false,last=0,audio=null,soundOn=true,cameraZoom=1,melodyTimer=null,melodyIndex=0;
+const rand=(a,b)=>a+Math.random()*(b-a),clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const hues=[276,284,292,267,305,258,318];
+const ball={x:0,y:0,vx:0,vy:0,r:4.2};
+function resize(){
+ w=innerWidth;h=innerHeight;dpr=Math.min(devicePixelRatio||1,1.7);
+ canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);
+ cx=w*.5;cy=h*.515;
+ outer=Math.min(w*.475,h*.305);
+ inner=Math.max(27,outer*.22);
+ spacing=(outer-inner)/(RING_COUNT-1);
+ makeStars();newLevel(false);
+}
+function makeStars(){stars=Array.from({length:Math.max(35,Math.floor(w*h/8500))},()=>({x:Math.random()*w,y:Math.random()*h,r:rand(.35,1),a:rand(.12,.42),p:rand(0,TAU)}));}
+function newLevel(increment=true){
+ rings=[];
+ for(let i=0;i<RING_COUNT;i++){
+   const hue=hues[(Math.random()*hues.length)|0]+rand(-5,5);
+   const dir=Math.random()<.5?-1:1;
+   rings.push({r:inner+i*spacing,angle:rand(0,TAU),gap:rand(.36,.53),dir,speed:dir*rand(.18,.48),hue,alive:true,flash:0});
+ }
+ active=0;escaped=0;
+ ball.x=cx+rand(-5,5);ball.y=cy+rand(-5,5);
+ const a=rand(0,TAU),speed=rand(145,190);
+ ball.vx=Math.cos(a)*speed;ball.vy=Math.sin(a)*speed;
+ $('left').textContent=String(RING_COUNT);$('out').textContent='00';
+}
+function audioInit(){
+ if(!audio){const AC=window.AudioContext||window.webkitAudioContext;if(AC)audio=new AC()}
+ if(audio?.state==='suspended')audio.resume();
+ if(audio&&soundOn&&!melodyTimer){
+   // A quiet, original ambient arpeggio sits behind the collision effects.
+   const notes=[261.63,329.63,392.00,329.63,293.66,349.23,440.00,349.23,261.63,329.63,392.00,523.25,440.00,392.00,329.63,293.66];
+   melodyIndex=0;
+   melodyTimer=setInterval(()=>{
+     if(!audio||!soundOn)return;
+     const f=notes[melodyIndex%notes.length];melodyIndex++;
+     sound(f,.48,.009,'sine',f*.997);
+     // A very soft octave shimmer on every fourth note.
+     if(melodyIndex%4===1)sound(f*2,.34,.0028,'triangle',f*1.98);
+   },360);
+ }
+}
+function stopMelody(){if(melodyTimer){clearInterval(melodyTimer);melodyTimer=null}}
+function sound(freq,dur,vol,type='sine',to=null){
+ if(!audio||!soundOn)return;
+ const t=audio.currentTime,o=audio.createOscillator(),g=audio.createGain();o.type=type;o.frequency.setValueAtTime(freq,t);if(to)o.frequency.exponentialRampToValueAtTime(to,t+dur);
+ g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(vol,t+.008);g.gain.exponentialRampToValueAtTime(.0001,t+dur);
+ o.connect(g);g.connect(audio.destination);o.start(t);o.stop(t+dur+.02);
+}
+function bounceTone(hue){sound(190+(hue%70)*2,.065,.012,'sine',110)}
+function escapeTone(hue){sound(380+(hue%100)*2,.2,.03,'triangle',850);setTimeout(()=>sound(760,.22,.014,'sine',1200),65)}
+function burst(x,y,hue){
+ for(let i=0;i<22;i++){const a=rand(0,TAU),s=rand(35,155),life=rand(.3,.72);particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life,max:life,hue,size:rand(.8,2.2)})}
+}
+function angleDelta(a,b){return Math.atan2(Math.sin(a-b),Math.cos(a-b))}
+function update(dt){
+ for(const s of stars)s.p+=dt;
+ for(const r of rings)if(r.alive){r.angle=(r.angle+r.speed*dt+TAU)%TAU;r.flash=Math.max(0,r.flash-dt*3)}
+ ball.x+=ball.vx*dt;ball.y+=ball.vy*dt;
+ const dx=ball.x-cx,dy=ball.y-cy,dist=Math.hypot(dx,dy)||.001;
+ const boundary=rings[active];
+ if(boundary){
+   if(dist+ball.r>=boundary.r){
+     const a=Math.atan2(dy,dx),gap=Math.abs(angleDelta(a,boundary.angle))<boundary.gap*.5;
+     const nx=dx/dist,ny=dy/dist,dot=ball.vx*nx+ball.vy*ny;
+     if(gap&&dot>0){
+       boundary.alive=false;burst(ball.x,ball.y,boundary.hue);escapeTone(boundary.hue);
+       active++;escaped++;
+       // A small permanent boost rewards every successful escape. Cap it to keep motion readable.
+       const currentSpeed=Math.hypot(ball.vx,ball.vy);
+       const boosted=Math.min(currentSpeed*1.10,460);
+       if(currentSpeed>0){ball.vx=ball.vx/currentSpeed*boosted;ball.vy=ball.vy/currentSpeed*boosted;}
+       $('left').textContent=String(RING_COUNT-active);$('out').textContent=String(escaped).padStart(2,'0');
+       if(active>=rings.length){newLevel(true);return}
+       // The ball has crossed this ring; gently place it just inside the next boundary.
+       const next=rings[active];const safeR=next.r-ball.r-1;
+       const nowDist=Math.hypot(ball.x-cx,ball.y-cy);
+       if(nowDist>safeR){ball.x=cx+dx/dist*safeR;ball.y=cy+dy/dist*safeR}
+     }else{
+       const overlap=dist+ball.r-boundary.r;
+       ball.x-=nx*overlap;ball.y-=ny*overlap;
+       if(dot>0){ball.vx-=2*dot*nx;ball.vy-=2*dot*ny}
+       boundary.flash=.6;bounceTone(boundary.hue);
+       const tangent=-ball.vx*ny+ball.vy*nx,impulse=rand(-8,8);
+       ball.vx+=-ny*impulse;ball.vy+=nx*impulse;
+     }
+   }
+ }
+ for(let i=particles.length-1;i>=0;i--){const p=particles[i];p.life-=dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.vx*=Math.pow(.1,dt);p.vy*=Math.pow(.1,dt);if(p.life<=0)particles.splice(i,1)}
+}
+function background(){
+ const g=ctx.createRadialGradient(cx,cy,0,cx,cy,Math.max(w,h)*.7);g.addColorStop(0,'#0b0714');g.addColorStop(.55,'#05040b');g.addColorStop(1,'#010104');ctx.fillStyle=g;ctx.fillRect(0,0,w,h);
+ for(const s of stars){ctx.globalAlpha=s.a*(.7+.3*Math.sin(s.p));ctx.fillStyle='#c9b6ff';ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,TAU);ctx.fill()}ctx.globalAlpha=1;
+}
+function drawRing(r){
+ const a0=r.angle+r.gap*.5,a1=r.angle+TAU-r.gap*.5;
+ ctx.save();ctx.lineCap='round';
+ ctx.shadowColor=`hsla(${r.hue},100%,60%,.38)`;ctx.shadowBlur=5;
+ ctx.strokeStyle=`hsla(${r.hue},100%,56%,.9)`;ctx.lineWidth=2.15;
+ ctx.beginPath();ctx.arc(cx,cy,r.r,a0,a1);ctx.stroke();
+ ctx.shadowBlur=0;ctx.strokeStyle=`hsla(${r.hue},100%,80%,.4)`;ctx.lineWidth=.65;
+ ctx.beginPath();ctx.arc(cx,cy,r.r-1.3,a0,a1);ctx.stroke();
+ for(const a of [a0,a1]){ctx.fillStyle=`hsl(${r.hue},100%,83%)`;ctx.beginPath();ctx.arc(cx+Math.cos(a)*r.r,cy+Math.sin(a)*r.r,1.25,0,TAU);ctx.fill()}
+ if(r.flash>0){ctx.globalAlpha=r.flash*.45;ctx.strokeStyle='#fff';ctx.lineWidth=3;ctx.beginPath();ctx.arc(cx,cy,r.r,a0,a1);ctx.stroke()}
+ ctx.restore();
+}
+function draw(){
+ background();
+ // Camera starts close to the ball, then smoothly pulls back as the active
+ // boundary grows so the complete current ring stays inside the frame.
+ const currentRing=rings[active];
+ const progress=active/Math.max(1,rings.length-1);
+ // Gentle framing: a modest close-up at the center, then a gradual pull-back.
+ const targetZoom=1.58-(.53*progress);
+ cameraZoom+=(targetZoom-cameraZoom)*.055;
+ ctx.save();
+ ctx.translate(cx,cy);ctx.scale(cameraZoom,cameraZoom);ctx.translate(-cx,-cy);
+ // Draw outer rings first, keeping the active inner ring visually clear.
+ for(let i=rings.length-1;i>=0;i--)if(rings[i].alive)drawRing(rings[i]);
+ // Ball: bright blue-white core, restrained halo.
+ const grad=ctx.createRadialGradient(ball.x-ball.r*.3,ball.y-ball.r*.35,.3,ball.x,ball.y,ball.r*2.4);
+ grad.addColorStop(0,'#fff');grad.addColorStop(.25,'#c8f6ff');grad.addColorStop(.65,'#25aaff');grad.addColorStop(1,'#0755ff');
+ ctx.save();ctx.shadowColor='#168bff';ctx.shadowBlur=9;ctx.fillStyle=grad;ctx.beginPath();ctx.arc(ball.x,ball.y,ball.r,0,TAU);ctx.fill();ctx.restore();
+ ctx.strokeStyle='#d8faffaa';ctx.lineWidth=.7;ctx.beginPath();ctx.arc(ball.x,ball.y,ball.r*.72,0,TAU);ctx.stroke();
+ for(const p of particles){ctx.globalAlpha=clamp(p.life/p.max,0,1);ctx.fillStyle=`hsl(${p.hue},100%,75%)`;ctx.shadowBlur=5;ctx.shadowColor=`hsl(${p.hue},100%,65%)`;ctx.beginPath();ctx.arc(p.x,p.y,p.size,0,TAU);ctx.fill()}
+ ctx.globalAlpha=1;ctx.shadowBlur=0;
+ ctx.restore();
+}
+function frame(t){requestAnimationFrame(frame);if(!last)last=t;const dt=Math.min((t-last)/1000,.025);last=t;if(started)update(dt);draw()}
+$('start').addEventListener('click',()=>{started=true;audioInit();$('start').style.display='none'});
+$('sound').addEventListener('click',()=>{soundOn=!soundOn;$('sound').textContent=soundOn?'SOUND ON':'SOUND OFF';if(soundOn)audioInit();else stopMelody()});
+canvas.addEventListener('pointerdown',()=>{if(!started){started=true;audioInit();$('start').style.display='none'}});
+addEventListener('resize',resize,{passive:true});
+resize();requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
