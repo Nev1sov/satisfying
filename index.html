@@ -1,0 +1,1643 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>THREAD CLASH — Battle Lab</title>
+
+<style>
+* {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+}
+
+html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #070912;
+    color: white;
+    font-family: Arial, Helvetica, sans-serif;
+}
+
+body {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background:
+        radial-gradient(ellipse at center, #151b32 0%, #080a13 70%);
+}
+
+button, input, select {
+    font: inherit;
+}
+
+button {
+    border: 0;
+    cursor: pointer;
+    color: white;
+    font-weight: 900;
+    letter-spacing: 1px;
+}
+
+#setup {
+    width: min(94vw, 520px);
+    height: 94dvh;
+    overflow-y: auto;
+    padding: 18px 15px 25px;
+    border: 1px solid #343d5c;
+    border-radius: 20px;
+    background: linear-gradient(145deg, #171d32, #0a0e1b);
+    box-shadow: 0 0 45px #000a;
+}
+
+.logo {
+    text-align: center;
+    font-size: clamp(25px, 7vw, 36px);
+    font-weight: 1000;
+    letter-spacing: 3px;
+    color: #fff;
+    text-shadow: 0 0 20px #7c5cff;
+}
+
+.subtitle {
+    text-align: center;
+    color: #9ba6c9;
+    font-size: 11px;
+    letter-spacing: 3px;
+    margin: 6px 0 20px;
+}
+
+.section {
+    background: #ffffff08;
+    border: 1px solid #ffffff15;
+    border-radius: 13px;
+    padding: 13px;
+    margin-bottom: 12px;
+}
+
+.section-title {
+    font-size: 11px;
+    color: #9ca8d3;
+    font-weight: 900;
+    letter-spacing: 2px;
+    margin-bottom: 10px;
+}
+
+select, input[type="text"] {
+    width: 100%;
+    border: 1px solid #384363;
+    background: #0b1020;
+    color: white;
+    border-radius: 9px;
+    padding: 11px;
+    outline: none;
+}
+
+input[type="range"] {
+    width: 100%;
+    accent-color: #9a72ff;
+}
+
+.value {
+    color: #b89cff;
+    font-weight: 900;
+    float: right;
+}
+
+.fighter-list {
+    display: grid;
+    gap: 9px;
+}
+
+.fighter {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px;
+    background: #0a1020;
+    border: 1px solid #293653;
+    border-radius: 11px;
+}
+
+.avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+    background: #222b43;
+    border: 2px solid var(--fighter-color);
+}
+
+.fighter-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.fighter-info input {
+    margin-bottom: 6px;
+    padding: 8px;
+}
+
+.upload {
+    font-size: 10px;
+    color: #b8a6ff;
+    cursor: pointer;
+}
+
+.upload input {
+    display: none;
+}
+
+#start {
+    width: 100%;
+    padding: 17px;
+    border-radius: 12px;
+    background: linear-gradient(100deg, #743cff, #d13cff);
+    box-shadow: 0 0 25px #914bff66;
+    font-size: 16px;
+    margin-top: 5px;
+}
+
+#start:active {
+    transform: scale(.98);
+}
+
+#stage {
+    display: none;
+    position: relative;
+    width: min(100vw, 56.25dvh);
+    height: min(100dvh, 177.7778vw);
+    aspect-ratio: 9 / 16;
+    overflow: hidden;
+    background: #070912;
+}
+
+body.battle-mode {
+    background: #070912;
+}
+
+body.battle-mode #setup {
+    display: none;
+}
+
+body.battle-mode #stage {
+    display: block;
+}
+
+canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    touch-action: none;
+}
+
+#hud {
+    position: absolute;
+    top: max(62px, calc(env(safe-area-inset-top) + 48px));
+    left: 0;
+    width: 100%;
+    text-align: center;
+    pointer-events: none;
+    text-shadow: 0 2px 8px black;
+}
+
+#hud-title {
+    font-weight: 1000;
+    font-size: clamp(20px, 6vw, 29px);
+    letter-spacing: 4px;
+}
+
+#hud-sub {
+    color: #9ba7cc;
+    font-size: 10px;
+    letter-spacing: 3px;
+    margin-top: 5px;
+}
+
+#battle-count {
+    margin-top: 9px;
+    color: #d8c8ff;
+    font-size: 13px;
+    font-weight: 900;
+}
+
+#sound-toggle {
+    position: absolute;
+    top: max(15px, env(safe-area-inset-top));
+    right: 12px;
+    z-index: 5;
+    background: #151b30cc;
+    border: 1px solid #65709a;
+    border-radius: 30px;
+    padding: 9px 12px;
+    font-size: 11px;
+}
+
+#result {
+    display: none;
+    position: absolute;
+    inset: 0;
+    z-index: 10;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    background: linear-gradient(#080b18aa, #080b18dd);
+    text-align: center;
+    padding: 25px;
+}
+
+#result.show {
+    display: flex;
+}
+
+#result-label {
+    font-size: 13px;
+    letter-spacing: 5px;
+    color: #c1a7ff;
+    font-weight: 900;
+}
+
+#winner-name {
+    margin: 15px 0;
+    font-size: clamp(32px, 10vw, 55px);
+    font-weight: 1000;
+    text-shadow: 0 0 25px #a477ff;
+    overflow-wrap: anywhere;
+}
+
+.result-button {
+    width: 210px;
+    padding: 14px;
+    margin: 7px;
+    border-radius: 10px;
+    background: linear-gradient(100deg, #713cff, #c13fff);
+}
+
+.result-button.secondary {
+    background: #202943;
+    border: 1px solid #65709a;
+}
+
+@media (max-height: 650px) {
+    #setup {
+        height: 98dvh;
+        padding-top: 10px;
+    }
+}
+
+</style>
+</head>
+
+<body>
+
+<div id="setup">
+
+    <div class="logo">THREAD CLASH</div>
+    <div class="subtitle">BATTLE LAB</div>
+
+    <div class="section">
+        <div class="section-title">NUMBER OF FIGHTERS</div>
+        <select id="fighter-count">
+            <option value="3">3 FIGHTERS</option>
+            <option value="4" selected>4 FIGHTERS</option>
+            <option value="5">5 FIGHTERS</option>
+        </select>
+    </div>
+
+    <div class="section">
+        <div class="section-title">FIGHTER SETUP</div>
+        <div class="fighter-list" id="fighter-list"></div>
+    </div>
+
+    <div class="section">
+        <div class="section-title">
+            INITIAL THREADS
+            <span class="value" id="thread-value">20</span>
+        </div>
+        <input id="thread-count" type="range" min="5" max="50" value="20">
+    </div>
+
+    <div class="section">
+        <div class="section-title">BATTLE SPEED</div>
+        <select id="speed">
+            <option value="0.8">SLOW</option>
+            <option value="1" selected>NORMAL</option>
+            <option value="1.3">FAST</option>
+        </select>
+    </div>
+
+    <button id="start">START BATTLE</button>
+</div>
+
+<div id="stage">
+
+    <canvas id="canvas" width="720" height="1280"></canvas>
+
+    <div id="hud">
+        <div id="hud-title">THREAD CLASH</div>
+        <div id="hud-sub">LAST ONE STANDING WINS</div>
+        <div id="battle-count"></div>
+    </div>
+
+    <button id="sound-toggle">♫ SOUND ON</button>
+
+    <div id="result">
+        <div id="result-label">BATTLE FINISHED</div>
+        <div id="winner-name">CHAMPION</div>
+        <button class="result-button" id="rematch">REMATCH</button>
+        <button class="result-button secondary" id="back">BACK TO SETUP</button>
+    </div>
+
+</div>
+
+<script>
+"use strict";
+
+// ==========================================
+// CONFIGURATION
+// ==========================================
+
+const W = 720;
+const H = 1280;
+
+const CX = 360;
+const CY = 655;
+const ARENA_R = 300;
+
+const BALL_R = 19;          // smaller balls
+const THREAD_WIDTH = 2.6;   // clearly visible threads
+
+// Speed: constant motion, every bounce makes the ball a bit faster
+const BASE_SPEED = 2.4;
+const MAX_SPEED  = 10;
+const WALL_GAIN  = 1.03;
+const HIT_GAIN   = 1.04;
+
+const COLORS = [
+    "#ff4e72",
+    "#42dfff",
+    "#b6ff4a",
+    "#bd79ff",
+    "#ffb347"
+];
+
+let fighters = [];
+let particles = [];
+let pops = [];
+let snaps = [];
+let ending = false;
+let endTimer = 0;
+
+let running = false;
+let finished = false;
+let soundEnabled = true;
+
+let animationId = 0;
+let lastTime = 0;
+
+let speedMultiplier = 1;
+let initialThreads = 20;
+
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+
+// ==========================================
+// SETUP SCREEN
+// ==========================================
+
+const countSelect = document.getElementById("fighter-count");
+const fighterList = document.getElementById("fighter-list");
+
+function createFighterInputs() {
+
+    const count = Number(countSelect.value);
+
+    fighterList.innerHTML = "";
+
+    for (let i = 0; i < count; i++) {
+
+        const color = COLORS[i];
+
+        const item = document.createElement("div");
+        item.className = "fighter";
+
+        item.innerHTML = `
+            <img class="avatar" id="preview-${i}"
+                 style="--fighter-color:${color}"
+                 src="${makePlaceholder(color)}">
+
+            <div class="fighter-info">
+                <input type="text"
+                       id="name-${i}"
+                       maxlength="16"
+                       value="Fighter ${i + 1}"
+                       placeholder="Fighter name">
+
+                <label class="upload">
+                    UPLOAD PHOTO
+                    <input type="file"
+                           id="photo-${i}"
+                           accept="image/*">
+                </label>
+            </div>
+        `;
+
+        fighterList.appendChild(item);
+
+        document.getElementById(`photo-${i}`)
+            .addEventListener("change", event => {
+
+                const file = event.target.files[0];
+
+                if (!file) return;
+
+                const reader = new FileReader();
+
+                reader.onload = e => {
+                    document.getElementById(`preview-${i}`).src = e.target.result;
+                };
+
+                reader.readAsDataURL(file);
+            });
+    }
+}
+
+function makePlaceholder(color) {
+
+    const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+        <rect width="100" height="100" fill="#171d32"/>
+        <circle cx="50" cy="50" r="37" fill="${color}"/>
+        <circle cx="50" cy="50" r="25" fill="#ffffff" opacity=".25"/>
+    </svg>`;
+
+    return "data:image/svg+xml;charset=utf-8," +
+        encodeURIComponent(svg);
+}
+
+countSelect.addEventListener("change", createFighterInputs);
+
+document.getElementById("thread-count")
+    .addEventListener("input", event => {
+        document.getElementById("thread-value").textContent =
+            event.target.value;
+    });
+
+createFighterInputs();
+
+
+// ==========================================
+// AUDIO ENGINE
+// ==========================================
+
+let audioContext = null;
+let musicTimer = null;
+let musicStep = 0;
+
+const melody = [
+    392, 493.88, 587.33, 783.99,
+    698.46, 587.33, 493.88, 440,
+    392, 523.25, 659.25, 783.99,
+    880, 783.99, 659.25, 587.33
+];
+
+function initAudio() {
+
+    if (!audioContext) {
+        audioContext = new (
+            window.AudioContext ||
+            window.webkitAudioContext
+        )();
+    }
+
+    if (audioContext.state === "suspended") {
+        audioContext.resume();
+    }
+}
+
+function tone(freq, duration, volume, type = "sine", delay = 0) {
+
+    if (!soundEnabled || !audioContext) return;
+
+    const oscillator = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+
+    oscillator.type = type;
+    oscillator.frequency.value = freq;
+
+    const start = audioContext.currentTime + delay;
+
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(
+        volume,
+        start + 0.015
+    );
+
+    gain.gain.exponentialRampToValueAtTime(
+        0.0001,
+        start + duration
+    );
+
+    oscillator.connect(gain);
+    gain.connect(audioContext.destination);
+
+    oscillator.start(start);
+    oscillator.stop(start + duration + 0.03);
+}
+
+function startMusic() {
+
+    if (!soundEnabled) return;
+
+    initAudio();
+
+    stopMusic();
+
+    musicStep = 0;
+
+    musicTimer = setInterval(() => {
+
+        if (!running || !soundEnabled) return;
+
+        const note = melody[musicStep % melody.length];
+
+        tone(note, 0.19, 0.055, "triangle");
+
+        if (musicStep % 4 === 0) {
+            tone(note / 2, 0.32, 0.035, "sine");
+        }
+
+        if (musicStep % 2 === 0) {
+            tone(note * 2, 0.11, 0.018, "sine", 0.04);
+        }
+
+        musicStep++;
+
+    }, 190);
+}
+
+function stopMusic() {
+
+    if (musicTimer) {
+        clearInterval(musicTimer);
+        musicTimer = null;
+    }
+}
+
+function playCollisionSound() {
+
+    tone(125, 0.09, 0.045, "triangle");
+}
+
+function playCutSound() {
+
+    tone(650, 0.10, 0.045, "sawtooth");
+    tone(300, 0.15, 0.025, "sine", 0.04);
+}
+
+function playEliminationSound() {
+
+    tone(420, 0.22, 0.06, "sawtooth");
+    tone(220, 0.32, 0.05, "triangle", 0.12);
+}
+
+function playPopSound() {
+
+    if (!soundEnabled || !audioContext) return;
+
+    const t = audioContext.currentTime;
+
+    // Falling "blup" tone
+    const osc = audioContext.createOscillator();
+    const g = audioContext.createGain();
+
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(950, t);
+    osc.frequency.exponentialRampToValueAtTime(140, t + 0.16);
+
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.14, t + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+
+    osc.connect(g);
+    g.connect(audioContext.destination);
+
+    osc.start(t);
+    osc.stop(t + 0.2);
+
+    // Short noise "pop" click
+    const len = Math.floor(audioContext.sampleRate * 0.09);
+    const buf = audioContext.createBuffer(1, len, audioContext.sampleRate);
+    const data = buf.getChannelData(0);
+
+    for (let i = 0; i < len; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
+    }
+
+    const src = audioContext.createBufferSource();
+    const ng = audioContext.createGain();
+
+    src.buffer = buf;
+    ng.gain.value = 0.16;
+
+    src.connect(ng);
+    ng.connect(audioContext.destination);
+
+    src.start(t);
+}
+
+function playWinSound() {
+
+    tone(523, 0.25, 0.07, "triangle");
+    tone(659, 0.25, 0.07, "triangle", 0.18);
+    tone(784, 0.35, 0.07, "triangle", 0.36);
+    tone(1046, 0.55, 0.08, "sine", 0.55);
+}
+
+document.getElementById("sound-toggle")
+    .addEventListener("click", () => {
+
+        soundEnabled = !soundEnabled;
+
+        document.getElementById("sound-toggle").textContent =
+            soundEnabled ? "♫ SOUND ON" : "♫ SOUND OFF";
+
+        if (soundEnabled) {
+            initAudio();
+            startMusic();
+        } else {
+            stopMusic();
+        }
+    });
+
+
+// ==========================================
+// FIGHTER CREATION
+// ==========================================
+
+function createFighters() {
+
+    fighters = [];
+
+    const count = Number(countSelect.value);
+
+    initialThreads = Number(
+        document.getElementById("thread-count").value
+    );
+
+    speedMultiplier = Number(
+        document.getElementById("speed").value
+    );
+
+    for (let i = 0; i < count; i++) {
+
+        const angle =
+            (Math.PI * 2 * i / count) - Math.PI / 2;
+
+        const startRadius = ARENA_R * 0.5;
+
+        const x = CX + Math.cos(angle) * startRadius;
+        const y = CY + Math.sin(angle) * startRadius;
+
+        // Start moving roughly across the arena, never at ~0 speed.
+        const direction = angle + Math.PI + (Math.random() - 0.5) * 1.6;
+
+        const photo = document.getElementById(`preview-${i}`).src;
+
+        const image = new Image();
+        image.src = photo;
+
+        // Initial threads: evenly spread around the arena wall.
+        const strands = [];
+        const offset = Math.random() * Math.PI * 2;
+
+        for (let k = 0; k < initialThreads; k++) {
+
+            const a = offset + Math.PI * 2 * k / initialThreads;
+
+            strands.push({
+                x: CX + Math.cos(a) * ARENA_R,
+                y: CY + Math.sin(a) * ARENA_R,
+                alpha: 1
+            });
+        }
+
+        fighters.push({
+
+            id: i,
+
+            name: document.getElementById(`name-${i}`).value.trim()
+                || `Fighter ${i + 1}`,
+
+            color: COLORS[i],
+
+            image,
+
+            x,
+            y,
+
+            vx: Math.cos(direction) * BASE_SPEED,
+            vy: Math.sin(direction) * BASE_SPEED,
+
+            r: BALL_R,
+
+            strands,
+
+            alive: true,
+
+            collisionCooldown: 0,
+
+            wallCooldown: 0,
+
+            cutCooldown: 0
+        });
+    }
+}
+
+
+// ==========================================
+// BATTLE START / RESET
+// ==========================================
+
+function startBattle() {
+
+    createFighters();
+
+    particles = [];
+    pops = [];
+    snaps = [];
+    ending = false;
+    endTimer = 0;
+
+    running = true;
+    finished = false;
+
+    lastTime = 0;
+
+    document.getElementById("result").classList.remove("show");
+
+    document.getElementById("battle-count").textContent =
+        `${fighters.length} FIGHTERS REMAINING`;
+
+    document.body.classList.add("battle-mode");
+
+    if (document.documentElement.requestFullscreen) {
+        document.documentElement.requestFullscreen().catch(() => {});
+    }
+
+    startMusic();
+
+    cancelAnimationFrame(animationId);
+
+    animationId = requestAnimationFrame(loop);
+}
+
+document.getElementById("start")
+    .addEventListener("click", () => {
+        initAudio();
+        startBattle();
+    });
+
+function resetBattle() {
+
+    running = false;
+    finished = false;
+
+    stopMusic();
+
+    document.getElementById("result").classList.remove("show");
+
+    document.body.classList.remove("battle-mode");
+
+    if (document.fullscreenElement) {
+        document.exitFullscreen().catch(() => {});
+    }
+
+    cancelAnimationFrame(animationId);
+}
+
+document.getElementById("back")
+    .addEventListener("click", resetBattle);
+
+document.getElementById("rematch")
+    .addEventListener("click", () => {
+        initAudio();
+        startBattle();
+    });
+
+
+// ==========================================
+// GEOMETRY
+// ==========================================
+
+function distancePointToSegment(px, py, x1, y1, x2, y2) {
+
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+
+    const lengthSquared = dx * dx + dy * dy;
+
+    if (lengthSquared === 0) {
+        return Math.hypot(px - x1, py - y1);
+    }
+
+    let t = (
+        (px - x1) * dx +
+        (py - y1) * dy
+    ) / lengthSquared;
+
+    t = Math.max(0, Math.min(1, t));
+
+    const nearestX = x1 + t * dx;
+    const nearestY = y1 + t * dy;
+
+    return Math.hypot(px - nearestX, py - nearestY);
+}
+
+
+// ==========================================
+// BALL COLLISIONS
+// ==========================================
+
+function setSpeed(ball, target) {
+
+    let sp = Math.hypot(ball.vx, ball.vy);
+
+    if (sp < 0.01) {
+        const a = Math.random() * Math.PI * 2;
+        ball.vx = Math.cos(a);
+        ball.vy = Math.sin(a);
+        sp = 1;
+    }
+
+    const k = target / sp;
+
+    ball.vx *= k;
+    ball.vy *= k;
+}
+
+function resolveBallCollisions() {
+
+    for (let i = 0; i < fighters.length; i++) {
+
+        const a = fighters[i];
+
+        if (!a.alive) continue;
+
+        for (let j = i + 1; j < fighters.length; j++) {
+
+            const b = fighters[j];
+
+            if (!b.alive) continue;
+
+            let dx = b.x - a.x;
+            let dy = b.y - a.y;
+
+            let dist = Math.hypot(dx, dy);
+
+            const minDist = a.r + b.r;
+
+            if (dist >= minDist) continue;
+
+            if (dist < 0.001) {
+                dx = 1;
+                dy = 0;
+                dist = 1;
+            }
+
+            const nx = dx / dist;
+            const ny = dy / dist;
+
+            // Separate overlapping balls.
+            const overlap = minDist - dist;
+
+            a.x -= nx * overlap * 0.5;
+            a.y -= ny * overlap * 0.5;
+
+            b.x += nx * overlap * 0.5;
+            b.y += ny * overlap * 0.5;
+
+            const relativeVx = b.vx - a.vx;
+            const relativeVy = b.vy - a.vy;
+
+            const velocityAlongNormal =
+                relativeVx * nx + relativeVy * ny;
+
+            if (velocityAlongNormal < 0) {
+
+                const speedA = Math.hypot(a.vx, a.vy);
+                const speedB = Math.hypot(b.vx, b.vy);
+
+                // Elastic exchange of the normal velocity component.
+                const impulse = -velocityAlongNormal;
+
+                a.vx -= impulse * nx;
+                a.vy -= impulse * ny;
+
+                b.vx += impulse * nx;
+                b.vy += impulse * ny;
+
+                // Nobody loses energy and stops: both keep moving
+                // and get faster after every hit.
+                const target = Math.min(
+                    MAX_SPEED,
+                    Math.max(BASE_SPEED, (speedA + speedB) / 2) * HIT_GAIN
+                );
+
+                setSpeed(a, target);
+                setSpeed(b, target);
+            }
+
+            if (
+                a.collisionCooldown <= 0 &&
+                b.collisionCooldown <= 0
+            ) {
+
+                playCollisionSound();
+
+                a.collisionCooldown = 0.12;
+                b.collisionCooldown = 0.12;
+
+                createParticles(
+                    (a.x + b.x) / 2,
+                    (a.y + b.y) / 2,
+                    "#ffffff",
+                    5
+                );
+            }
+
+            keepInsideArena(a);
+            keepInsideArena(b);
+        }
+    }
+}
+
+function keepInsideArena(ball) {
+
+    const dx = ball.x - CX;
+    const dy = ball.y - CY;
+
+    const dist = Math.hypot(dx, dy);
+
+    const maxDist = ARENA_R - ball.r;
+
+    if (dist > maxDist) {
+
+        const nx = dx / dist;
+        const ny = dy / dist;
+
+        ball.x = CX + nx * maxDist;
+        ball.y = CY + ny * maxDist;
+
+        const dot = ball.vx * nx + ball.vy * ny;
+
+        if (dot > 0) {
+            ball.vx -= 2 * dot * nx;
+            ball.vy -= 2 * dot * ny;
+        }
+    }
+}
+
+
+// ==========================================
+// THREAD MECHANICS
+// ==========================================
+
+function addThread(ball, nx, ny) {
+
+    const angle = Math.atan2(ny, nx);
+
+    ball.strands.push({
+        x: CX + Math.cos(angle) * ARENA_R,
+        y: CY + Math.sin(angle) * ARENA_R,
+        alpha: 1
+    });
+
+    createParticles(ball.x, ball.y, ball.color, 5);
+}
+
+function cutThreads() {
+
+    for (const attacker of fighters) {
+
+        if (!attacker.alive || attacker.cutCooldown > 0) continue;
+
+        for (const target of fighters) {
+
+            if (
+                !target.alive ||
+                target.id === attacker.id
+            ) continue;
+
+            for (let k = target.strands.length - 1; k >= 0; k--) {
+
+                const strand = target.strands[k];
+
+                const d = distancePointToSegment(
+                    attacker.x,
+                    attacker.y,
+                    target.x,
+                    target.y,
+                    strand.x,
+                    strand.y
+                );
+
+                if (d < attacker.r + 3) {
+
+                    target.strands.splice(k, 1);
+
+                    // The cut thread flashes and fades.
+                    snaps.push({
+                        x1: target.x, y1: target.y,
+                        x2: strand.x, y2: strand.y,
+                        color: target.color,
+                        life: 0.3
+                    });
+
+                    attacker.cutCooldown = 0.05;
+
+                    playCutSound();
+
+                    createParticles(
+                        attacker.x,
+                        attacker.y,
+                        target.color,
+                        6
+                    );
+
+                    // No threads left -> the ball pops.
+                    if (target.strands.length === 0) {
+                        eliminate(target);
+                    }
+
+                    break;
+                }
+            }
+
+            if (attacker.cutCooldown > 0) break;
+        }
+    }
+}
+
+function eliminate(ball) {
+
+    if (!ball.alive) return;
+
+    ball.alive = false;
+
+    pops.push({
+        x: ball.x,
+        y: ball.y,
+        r: ball.r,
+        color: ball.color,
+        image: ball.image,
+        t: 0
+    });
+
+    playPopSound();
+
+    createParticles(ball.x, ball.y, ball.color, 36);
+    createParticles(ball.x, ball.y, "#ffffff", 12);
+
+    updateBattleCount();
+
+    const survivors = fighters.filter(f => f.alive);
+
+    if (survivors.length <= 1 && !ending) {
+        finishBattle(survivors[0] || null);
+    }
+}
+
+function updateBattleCount() {
+
+    const remaining = fighters.filter(f => f.alive).length;
+
+    document.getElementById("battle-count").textContent =
+        `${remaining} FIGHTERS REMAINING`;
+}
+
+
+// ==========================================
+// PARTICLES
+// ==========================================
+
+function createParticles(x, y, color, amount) {
+
+    for (let i = 0; i < amount; i++) {
+
+        const angle = Math.random() * Math.PI * 2;
+
+        const velocity = 1 + Math.random() * 4;
+
+        particles.push({
+
+            x,
+            y,
+
+            vx: Math.cos(angle) * velocity,
+            vy: Math.sin(angle) * velocity,
+
+            life: 0.5 + Math.random() * 0.5,
+
+            maxLife: 1,
+
+            size: 2 + Math.random() * 4,
+
+            color
+        });
+    }
+}
+
+function updateParticles(dt) {
+
+    for (let i = particles.length - 1; i >= 0; i--) {
+
+        const p = particles[i];
+
+        p.x += p.vx * dt * 60;
+        p.y += p.vy * dt * 60;
+
+        p.vx *= 0.98;
+        p.vy *= 0.98;
+
+        p.life -= dt;
+
+        if (p.life <= 0) {
+            particles.splice(i, 1);
+        }
+    }
+}
+
+
+// ==========================================
+// PHYSICS UPDATE
+// ==========================================
+
+function update(dt) {
+
+    const frameScale = Math.min(dt * 60, 1.5);
+
+    // Sub-steps so fast balls never tunnel through each other or the wall.
+    let maxSpeed = 0;
+
+    for (const ball of fighters) {
+
+        if (!ball.alive) continue;
+
+        ball.collisionCooldown -= dt;
+        ball.wallCooldown -= dt;
+        ball.cutCooldown -= dt;
+
+        maxSpeed = Math.max(maxSpeed, Math.hypot(ball.vx, ball.vy));
+    }
+
+    const steps = Math.max(
+        1,
+        Math.ceil(maxSpeed * speedMultiplier * frameScale / 7)
+    );
+
+    const k = speedMultiplier * frameScale / steps;
+
+    for (let s = 0; s < steps; s++) {
+
+        for (const ball of fighters) {
+
+            if (!ball.alive) continue;
+
+            ball.x += ball.vx * k;
+            ball.y += ball.vy * k;
+
+            const dx = ball.x - CX;
+            const dy = ball.y - CY;
+
+            const dist = Math.hypot(dx, dy);
+
+            const maxDist = ARENA_R - ball.r;
+
+            if (dist >= maxDist) {
+
+                const nx = dx / dist;
+                const ny = dy / dist;
+
+                const dot = ball.vx * nx + ball.vy * ny;
+
+                if (dot > 0) {
+
+                    ball.vx -= 2 * dot * nx;
+                    ball.vy -= 2 * dot * ny;
+
+                    ball.x = CX + nx * maxDist;
+                    ball.y = CY + ny * maxDist;
+
+                    // Each wall bounce: +1 thread and a bit more speed.
+                    setSpeed(
+                        ball,
+                        Math.min(
+                            MAX_SPEED,
+                            Math.max(BASE_SPEED, Math.hypot(ball.vx, ball.vy)) * WALL_GAIN
+                        )
+                    );
+
+                    if (ball.wallCooldown <= 0) {
+
+                        addThread(ball, nx, ny);
+
+                        ball.wallCooldown = 0.12;
+                    }
+                }
+            }
+        }
+
+        resolveBallCollisions();
+    }
+
+    if (!ending) cutThreads();
+
+    updateParticles(dt);
+
+    for (let i = pops.length - 1; i >= 0; i--) {
+        pops[i].t += dt;
+        if (pops[i].t > 0.5) pops.splice(i, 1);
+    }
+
+    for (let i = snaps.length - 1; i >= 0; i--) {
+        snaps[i].life -= dt;
+        if (snaps[i].life <= 0) snaps.splice(i, 1);
+    }
+
+    if (ending) {
+
+        endTimer -= dt;
+
+        if (endTimer <= 0) showResult();
+    }
+}
+
+
+// ==========================================
+// DRAWING
+// ==========================================
+
+function drawBackground() {
+
+    ctx.fillStyle = "#070912";
+    ctx.fillRect(0, 0, W, H);
+
+    const gradient = ctx.createRadialGradient(
+        CX, CY, 50,
+        CX, CY, 600
+    );
+
+    gradient.addColorStop(0, "#171d35");
+    gradient.addColorStop(1, "#070912");
+
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, W, H);
+
+    // Subtle background stars.
+    for (let i = 0; i < 65; i++) {
+
+        const x = (i * 137) % W;
+        const y = (i * 251) % H;
+
+        ctx.fillStyle = "rgba(170,190,255,0.17)";
+        ctx.fillRect(x, y, 2, 2);
+    }
+}
+
+function drawArena() {
+
+    ctx.save();
+
+    ctx.beginPath();
+    ctx.arc(CX, CY, ARENA_R, 0, Math.PI * 2);
+
+    ctx.strokeStyle = "#b38cff";
+    ctx.lineWidth = 5;
+
+    ctx.shadowBlur = 25;
+    ctx.shadowColor = "#9b5dff";
+
+    ctx.stroke();
+
+    ctx.shadowBlur = 0;
+
+    ctx.beginPath();
+    ctx.arc(CX, CY, ARENA_R - 9, 0, Math.PI * 2);
+
+    ctx.strokeStyle = "#ffffff20";
+    ctx.lineWidth = 1.5;
+
+    ctx.stroke();
+
+    ctx.restore();
+}
+
+function drawThreads() {
+
+    // Cut threads flash white and fade out.
+    for (const sn of snaps) {
+
+        ctx.save();
+
+        ctx.globalAlpha = sn.life / 0.3;
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = THREAD_WIDTH + 1.5;
+
+        ctx.beginPath();
+        ctx.moveTo(sn.x1, sn.y1);
+        ctx.lineTo(sn.x2, sn.y2);
+        ctx.stroke();
+
+        ctx.restore();
+    }
+
+    for (const ball of fighters) {
+
+        if (!ball.alive) continue;
+
+        ctx.save();
+
+        ctx.lineWidth = THREAD_WIDTH;
+        ctx.strokeStyle = ball.color;
+        ctx.globalAlpha = 0.8;
+
+        ctx.beginPath();
+
+        for (const strand of ball.strands) {
+            ctx.moveTo(ball.x, ball.y);
+            ctx.lineTo(strand.x, strand.y);
+        }
+
+        ctx.stroke();
+
+        // Anchor dots on the arena wall.
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = ball.color;
+
+        for (const strand of ball.strands) {
+            ctx.beginPath();
+            ctx.arc(strand.x, strand.y, 3.2, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        ctx.restore();
+    }
+}
+
+function drawBall(ball) {
+
+    if (!ball.alive) return;
+
+    ctx.save();
+
+    // Outer glow.
+    ctx.shadowColor = ball.color;
+    ctx.shadowBlur = 14;
+
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, ball.r + 3, 0, Math.PI * 2);
+
+    ctx.fillStyle = ball.color;
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+
+    // Ball body.
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
+
+    ctx.fillStyle = "#101729";
+    ctx.fill();
+
+    ctx.save();
+
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, ball.r - 2, 0, Math.PI * 2);
+
+    ctx.clip();
+
+    if (ball.image && ball.image.complete && ball.image.naturalWidth > 0) {
+
+        ctx.drawImage(
+            ball.image,
+            ball.x - ball.r,
+            ball.y - ball.r,
+            ball.r * 2,
+            ball.r * 2
+        );
+
+    } else {
+
+        ctx.fillStyle = ball.color;
+        ctx.fillRect(
+            ball.x - ball.r,
+            ball.y - ball.r,
+            ball.r * 2,
+            ball.r * 2
+        );
+    }
+
+    ctx.restore();
+
+    // Border.
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
+
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+
+    ctx.restore();
+
+    // Thread counter above each ball.
+    ctx.save();
+
+    ctx.font = "bold 20px Arial";
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#ffffff";
+
+    ctx.shadowColor = "#000000";
+    ctx.shadowBlur = 6;
+
+    ctx.fillText(
+        ball.strands.length,
+        ball.x,
+        ball.y - ball.r - 12
+    );
+
+    ctx.restore();
+}
+
+function drawParticles() {
+
+    for (const p of particles) {
+
+        ctx.save();
+
+        ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
+
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+
+        ctx.arc(
+            p.x,
+            p.y,
+            p.size,
+            0,
+            Math.PI * 2
+        );
+
+        ctx.fill();
+
+        ctx.restore();
+    }
+}
+
+function draw() {
+
+    drawBackground();
+
+    drawArena();
+
+    drawThreads();
+
+    for (const ball of fighters) {
+        drawBall(ball);
+    }
+
+    drawPops();
+
+    drawParticles();
+}
+
+function drawPops() {
+
+    for (const p of pops) {
+
+        const u = p.t / 0.5;
+
+        // Ball swells and bursts
+        if (u < 0.45) {
+
+            const sc = 1 + u * 1.1;
+
+            ctx.save();
+
+            ctx.globalAlpha = 1 - u / 0.45 * 0.6;
+
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.r * sc, 0, Math.PI * 2);
+            ctx.fillStyle = p.color;
+            ctx.fill();
+
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = "#ffffff";
+            ctx.stroke();
+
+            ctx.restore();
+        }
+
+        // Shock ring
+        ctx.save();
+
+        ctx.globalAlpha = Math.max(0, 1 - u);
+        ctx.lineWidth = 4 * (1 - u) + 1;
+        ctx.strokeStyle = p.color;
+
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r + u * 80, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.restore();
+    }
+}
+
+
+// ==========================================
+// WINNER
+// ==========================================
+
+function finishBattle(winner) {
+
+    ending = true;
+    endTimer = 1.5;       // let the last pop play out first
+
+    stopMusic();
+
+    finishWinner = winner;
+
+    if (winner) playWinSound();
+}
+
+let finishWinner = null;
+
+function showResult() {
+
+    running = false;
+    finished = true;
+    ending = false;
+
+    const winner = finishWinner;
+
+    if (winner) {
+
+        document.getElementById("winner-name").textContent =
+            winner.name.toUpperCase();
+
+        document.getElementById("result-label").textContent =
+            "THE LAST FIGHTER STANDING";
+
+    } else {
+
+        document.getElementById("winner-name").textContent =
+            "DRAW";
+
+        document.getElementById("result-label").textContent =
+            "BATTLE FINISHED";
+    }
+
+    document.getElementById("result").classList.add("show");
+}
+
+
+// ==========================================
+// MAIN LOOP
+// ==========================================
+
+function loop(timestamp) {
+
+    if (!running) return;
+
+    if (!lastTime) lastTime = timestamp;
+
+    const dt = Math.min(
+        (timestamp - lastTime) / 1000,
+        0.033
+    );
+
+    lastTime = timestamp;
+
+    update(dt);
+
+    draw();
+
+    animationId = requestAnimationFrame(loop);
+}
+
+
+// ==========================================
+// INITIAL CANVAS
+// ==========================================
+
+drawBackground();
+drawArena();
+
+</script>
+
+</body>
+</html>
