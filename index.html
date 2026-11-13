@@ -1,0 +1,1116 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#050607">
+<title>Speed Ball</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{width:100%;height:100%;background:#050607;overflow:hidden;touch-action:manipulation;-webkit-user-select:none;user-select:none;font-family:Arial,Helvetica,sans-serif}
+#stage{position:absolute;left:0;top:0;width:1080px;height:1920px;transform-origin:0 0}
+canvas{position:absolute;inset:0;width:1080px;height:1920px;will-change:transform}
+.t{position:absolute;left:0;width:1080px;text-align:center;color:#e9edf0;font-weight:500;white-space:nowrap;pointer-events:none;text-shadow:none;font-variant-numeric:tabular-nums}
+.t small,.t i{display:block;font-style:normal;font-weight:500;color:#858d95;letter-spacing:.16em}
+#top{top:82px;font-size:29px;letter-spacing:.22em;color:#aeb6bd;font-weight:600}
+#spd{top:145px;font-size:112px;line-height:1;font-weight:400;letter-spacing:-.04em}
+#spd small{font-size:25px;margin-top:12px;letter-spacing:.32em;color:#858d95}
+#row{top:345px;display:flex;justify-content:center;gap:100px;width:1080px}
+#row div{width:390px;text-align:center}
+#row i{font-size:19px;margin-bottom:12px}
+#row b{font-size:48px;font-weight:400;color:#dce1e5}
+#en{top:455px;font-size:19px;font-weight:400;color:#929ba3;letter-spacing:.05em;opacity:0;transition:opacity .5s}
+#toast{top:1480px;font-size:27px;opacity:0;transition:opacity .25s;color:#c5ccd2;letter-spacing:.12em}
+#toast span{display:inline-block;padding:12px 24px;border:1px solid #59636c;border-radius:2px;background:rgba(5,7,9,.88);text-shadow:none}
+#hook{top:735px;opacity:1;transition:opacity .35s}
+#hook div{font-size:55px;line-height:1.25;margin-bottom:8px;font-weight:400;letter-spacing:.02em}
+#hook .a{color:#dce2e7}
+#hook .s{font-size:27px;color:#858f98;margin-top:22px;letter-spacing:.1em}
+#flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}
+#end{top:0;height:1920px;opacity:0;transition:opacity .6s;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:30px;padding:80px 55px 0;white-space:normal}
+#end .big{font-size:78px;color:#f0f2f4;line-height:1.12;font-weight:400}
+#end .mid{font-size:30px;color:#aab2b9;line-height:1.4;font-weight:400;white-space:normal}
+#end .sm{font-size:23px;color:#858e96;line-height:1.5;font-weight:400;white-space:normal}
+#end .cta{margin-top:30px;padding:17px 34px;border:1px solid #8b959d;border-radius:2px;background:transparent;color:#e5e9ec;font-size:22px;letter-spacing:.16em;text-shadow:none;font-weight:500}
+#snd{position:fixed;left:50%;bottom:9%;transform:translateX(-50%);z-index:8;padding:12px 20px;border:1px solid #727c84;background:rgba(5,7,9,.9);color:#cbd1d6;font:500 12px/1 sans-serif;letter-spacing:.18em;display:none;cursor:pointer}
+#snd.on{display:block}
+#start{position:fixed;inset:0;z-index:9;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:25px;background:#050607;color:#e9edf0;text-align:center;transition:opacity .5s;cursor:pointer}
+#start.hide{opacity:0;pointer-events:none}
+#start b{font-size:28px;letter-spacing:.28em;font-weight:500}
+#start i{font-style:normal;font-size:14px;font-weight:500;letter-spacing:.22em;padding:15px 30px;border:1px solid #aeb6bd}
+#start span{font-size:11px;letter-spacing:.16em;color:#7d878f;line-height:2}
+</style>
+</head>
+<body>
+<div id="stage">
+<canvas id="cv"></canvas>
+
+<div class="t" id="top">SPEED OF LIGHT</div>
+<div class="t" id="spd"><span id="spdv">50</span><small>KM/H</small></div>
+
+<div class="t" id="row">
+  <div><i>LIGHT SPEED</i><b id="pct">0.00%</b></div>
+  <div><i>TIME DILATION ×</i><b id="gam">1.00</b></div>
+</div>
+
+<div class="t" id="en"></div>
+<div class="t" id="toast"><span id="toastv"></span></div>
+
+<div class="t" id="hook">
+  <div>CAN IT REACH</div>
+  <div class="a">THE SPEED OF LIGHT?</div>
+  <div class="s">1,079,252,849 KM/H</div>
+</div>
+
+<div id="flash"></div>
+
+<div class="t" id="end">
+  <div class="big" id="e1"></div>
+  <div class="mid" id="e2"></div>
+  <div class="sm" id="e3"></div>
+  <div class="cta">FOLLOW FOR MORE</div>
+</div>
+</div>
+
+<div id="snd">SOUND OFF — TAP TO ENABLE</div>
+
+<div id="start">
+  <b>SPEED BALL</b>
+  <i>TAP TO START</i>
+  <span>SOUND ON · SILENT MODE OFF<br>START SCREEN RECORDING FIRST</span>
+</div>
+
+<script>
+(() => {
+'use strict';
+
+/* ================= SETTINGS ================= */
+
+const C_KMH = 1079252849;
+const START_KMH = 50, HIT_MULT = 1.065;
+
+const BETA_RELATIVISTIC = 0.1;
+const RISE_TIME = 9;
+const BETA_MAX = 1 - 1e-7;
+const HONEST_ENDING = true;
+
+const INTRO = 2.3, FINAL = 2.8, END_HOLD = 7;
+
+const START_PX = 4.3;
+const SPEED_EXP = 0.4;
+const MAX_HITS_FRAME = 400;
+
+const ARENA_R = 430, CX = 540, CY = 1000, BALL_R = 22;
+
+const HIROSHIMA_PER_KG_C2 = 1432;
+
+/* ============================================ */
+
+const $ = id => document.getElementById(id);
+
+const clamp = (v,a,b) => Math.min(b,Math.max(a,v));
+const lerp = (a,b,t) => a+(b-a)*t;
+const rnd = (a,b) => a+Math.random()*(b-a);
+
+const TAU = Math.PI*2;
+const W = 1080, H = 1920;
+
+const cv = $('cv');
+const ctx = cv.getContext('2d',{alpha:false});
+const stage = $('stage');
+
+let K = 1;
+let quality = 2;
+let ema = 1/60;
+let slowT = 0;
+
+const PHI_A = Math.atanh(BETA_RELATIVISTIC);
+const PHI_MAX = Math.atanh(BETA_MAX);
+
+const V_A = BETA_RELATIVISTIC*C_KMH;
+const RR = ARENA_R-BALL_R-2;
+const V0 = START_PX*ARENA_R;
+
+const MS = [
+[1235,'MACH 1 · SPEED OF SOUND'],
+[3240,'FASTER THAN A RIFLE BULLET'],
+[27600,'ISS ORBITAL SPEED'],
+[40270,'ESCAPE VELOCITY · LEAVES EARTH'],
+[107000,'EARTH ORBITING THE SUN'],
+[692000,'FASTEST MAN-MADE OBJECT'],
+[0.01*C_KMH,'1% OF LIGHT SPEED'],
+[0.1*C_KMH,'10% · RELATIVITY KICKS IN'],
+[0.5*C_KMH,'50% OF LIGHT SPEED'],
+[0.9*C_KMH,'90% · TIME SLOWS ×2.3'],
+[0.99*C_KMH,'99% · TIME SLOWS ×7'],
+[0.999*C_KMH,'99.9% · TIME SLOWS ×22'],
+[0.9999*C_KMH,'99.99% · TIME SLOWS ×71'],
+[0.99999*C_KMH,'99.999% · TIME SLOWS ×224'],
+[0.999999*C_KMH,'99.9999% · TIME SLOWS ×707']
+];
+
+/* ---------- layout ---------- */
+
+function layout(){
+  const vv=window.visualViewport;
+  const vw=vv?vv.width:innerWidth;
+  const vh=vv?vv.height:innerHeight;
+
+  const scale=Math.min(vw/W,vh/H);
+  const dpr=Math.min(devicePixelRatio||1,2);
+
+  stage.style.transform=
+    `translate(${(vw-W*scale)/2}px,${(vh-H*scale)/2}px) scale(${scale})`;
+
+  cv.width=Math.round(W*scale*dpr);
+  cv.height=Math.round(H*scale*dpr);
+
+  K=cv.width/W;
+
+  ctx.setTransform(K,0,0,K,0,0);
+  ctx.fillStyle='#050607';
+  ctx.fillRect(0,0,W,H);
+
+  ctx.strokeStyle='#626b73';
+  ctx.lineWidth=2;
+  ctx.beginPath();
+  ctx.arc(CX,CY,ARENA_R,0,TAU);
+  ctx.stroke();
+
+  ctx.strokeStyle='rgba(160,170,180,.16)';
+  ctx.lineWidth=1;
+  ctx.beginPath();
+  ctx.arc(CX,CY,ARENA_R-12,0,TAU);
+  ctx.stroke();
+
+  ctx.setTransform(1,0,0,1,0,0);
+}
+
+let rz;
+
+const onR=()=>{
+  clearTimeout(rz);
+  rz=setTimeout(layout,100);
+};
+
+addEventListener('resize',onR);
+addEventListener('orientationchange',onR);
+
+/* ---------- AUDIO ---------- */
+
+let ac,master,tdLP,rev,noise,windG,windF;
+let started=false;
+
+const mus={on:false,t:0,step:0};
+
+const PROG=[
+[57,60,64],
+[53,57,60],
+[48,52,55],
+[55,59,62]
+];
+
+const SC=[0,2,4,7,9];
+
+const mtof=m=>440*Math.pow(2,(m-69)/12);
+
+function initAudio(){
+
+  try{
+    if(navigator.audioSession)
+      navigator.audioSession.type='playback';
+  }catch(e){}
+
+  if(ac){
+    if(ac.state!=='running')ac.resume();
+    return;
+  }
+
+  ac=new(window.AudioContext||window.webkitAudioContext)({
+    latencyHint:'interactive'
+  });
+
+  ac.resume();
+
+  const comp=ac.createDynamicsCompressor();
+
+  comp.threshold.value=-13;
+  comp.ratio.value=5;
+  comp.attack.value=.003;
+  comp.release.value=.2;
+
+  tdLP=ac.createBiquadFilter();
+  tdLP.type='lowpass';
+  tdLP.frequency.value=18000;
+  tdLP.Q.value=.5;
+
+  master=ac.createGain();
+  master.gain.value=.9;
+
+  master.connect(tdLP);
+  tdLP.connect(comp);
+  comp.connect(ac.destination);
+
+  const len=(ac.sampleRate*2.6)|0;
+  const ir=ac.createBuffer(2,len,ac.sampleRate);
+
+  for(let c=0;c<2;c++){
+    const d=ir.getChannelData(c);
+    for(let i=0;i<len;i++){
+      d[i]=(Math.random()*2-1)*Math.pow(1-i/len,2.6);
+    }
+  }
+
+  const cn=ac.createConvolver();
+  cn.buffer=ir;
+
+  rev=ac.createGain();
+  rev.gain.value=.4;
+  rev.connect(cn);
+  cn.connect(master);
+
+  noise=ac.createBuffer(1,ac.sampleRate*2,ac.sampleRate);
+
+  {
+    const d=noise.getChannelData(0);
+    for(let i=0;i<d.length;i++)
+      d[i]=Math.random()*2-1;
+  }
+
+  const ns=ac.createBufferSource();
+  ns.buffer=noise;
+  ns.loop=true;
+
+  windF=ac.createBiquadFilter();
+  windF.type='bandpass';
+  windF.Q.value=.9;
+  windF.frequency.value=400;
+
+  windG=ac.createGain();
+  windG.gain.value=.0001;
+
+  ns.connect(windF);
+  windF.connect(windG);
+  windG.connect(master);
+  ns.start();
+
+  const sb=ac.createBufferSource();
+  sb.buffer=ac.createBuffer(1,1,22050);
+  sb.connect(ac.destination);
+  sb.start(0);
+}
+
+function osc(type,f0,f1,t,dur,vol,wet){
+  const o=ac.createOscillator();
+  const g=ac.createGain();
+
+  o.type=type;
+  o.frequency.setValueAtTime(f0,t);
+
+  if(f1!==f0)
+    o.frequency.exponentialRampToValueAtTime(f1,t+dur*.7);
+
+  g.gain.setValueAtTime(.0001,t);
+  g.gain.exponentialRampToValueAtTime(vol,t+Math.min(.008,dur/4));
+  g.gain.exponentialRampToValueAtTime(.0001,t+dur);
+
+  o.connect(g);
+  g.connect(master);
+
+  if(wet)g.connect(rev);
+
+  o.start(t);
+  o.stop(t+dur+.05);
+}
+
+function nz(t,dur,type,f,q,vol,wet,to){
+  const s=ac.createBufferSource();
+  const b=ac.createBiquadFilter();
+  const g=ac.createGain();
+
+  s.buffer=noise;
+  s.loop=true;
+
+  b.type=type;
+  b.Q.value=q;
+  b.frequency.setValueAtTime(f,t);
+
+  if(to)
+    b.frequency.exponentialRampToValueAtTime(to,t+dur);
+
+  g.gain.setValueAtTime(.0001,t);
+  g.gain.exponentialRampToValueAtTime(vol,t+Math.min(.02,dur/3));
+  g.gain.exponentialRampToValueAtTime(.0001,t+dur);
+
+  s.connect(b);
+  b.connect(g);
+  g.connect(master);
+
+  if(wet)g.connect(rev);
+
+  s.start(t,Math.random()*.8);
+  s.stop(t+dur+.05);
+}
+
+function glass(t,m,v,pan){
+
+  const f=mtof(m);
+  const dur=clamp(1.5-(m-55)/34,.45,1.3);
+  const g=ac.createGain();
+
+  [[1,1,1],[2.76,.5,.55],[5.4,.26,.3]].forEach(([r,a,d])=>{
+
+    if(f*r>14000)return;
+
+    const o=ac.createOscillator();
+    const e=ac.createGain();
+    const dd=dur*d+.05;
+
+    o.type='sine';
+    o.frequency.value=f*r;
+
+    e.gain.setValueAtTime(.0001,t);
+    e.gain.exponentialRampToValueAtTime((.04+.2*v)*a,t+.002);
+    e.gain.exponentialRampToValueAtTime(.0001,t+dd);
+
+    o.connect(e);
+    e.connect(g);
+
+    o.start(t);
+    o.stop(t+dd+.05);
+  });
+
+  let out=g;
+
+  if(ac.createStereoPanner){
+    const p=ac.createStereoPanner();
+    p.pan.value=pan;
+    g.connect(p);
+    out=p;
+  }
+
+  out.connect(master);
+
+  const r=ac.createGain();
+  r.gain.value=.8;
+  out.connect(r);
+  r.connect(rev);
+}
+
+const kick=(t,v)=>{
+  osc('sine',150,42,t,.22,v,0);
+  nz(t,.02,'highpass',3000,.7,v*.15,0);
+};
+
+function musicTick(P){
+
+  if(!ac||!mus.on)return;
+
+  const now=ac.currentTime;
+
+  if(mus.t<now)
+    mus.t=now+.05;
+
+  while(mus.t<now+.25){
+
+    const s=mus.step;
+    const bpm=72+100*P;
+    const st=60/bpm/4;
+    const ch=PROG[(s>>4)&3];
+    const t=mus.t;
+
+    if(s%16===0){
+      ch.forEach(n=>{
+        osc('triangle',mtof(n-12),mtof(n-12),t,60/bpm*4.1,.04+.03*P,1);
+      });
+    }
+
+    if(s%4===0)
+      kick(t,.12+.5*P);
+
+    if(P>.3&&s%4===2)
+      nz(t,.04,'highpass',7000,.7,.04+.05*P,0);
+
+    if(P>.12&&(s%2===0||P>.7)){
+      glass(
+        t,
+        ch[[0,1,2,1][s%4]]+12*(1+Math.floor(P*2.4)),
+        .35+.3*P,
+        ((s%8)/8-.5)*.8
+      );
+    }
+
+    mus.t+=st;
+    mus.step++;
+  }
+}
+
+let lastNote=-1,hitN=0;
+
+function hitSfx(px01,P){
+
+  if(!ac||ac.state!=='running')return;
+
+  hitN++;
+
+  const now=ac.currentTime+.008;
+
+  if(now-lastNote<.06)return;
+
+  lastNote=now;
+
+  const m=55+SC[hitN%5]
+    +12*Math.floor((hitN/5)%3)
+    +12*Math.floor(P*1.8);
+
+  if(hitN%3===0)
+    osc('sine',130,50,now,.12,.28*(1-.6*P),0);
+
+  glass(now,m,.55-.3*P,clamp(px01*2-1,-.7,.7));
+}
+
+function audioState(P,gamma,mode){
+
+  if(!ac)return;
+
+  const t=ac.currentTime;
+
+  tdLP.frequency.setTargetAtTime(
+    clamp(18000/(1+.012*(gamma-1)),900,18000),t,.15
+  );
+
+  windG.gain.setTargetAtTime(
+    mode===1?Math.max(.0001,.02+.2*Math.pow(P,2)):.0001,
+    t,.1
+  );
+
+  windF.frequency.setTargetAtTime(300+7000*P*P,t,.1);
+}
+
+const ping=m=>{
+  if(!ac)return;
+
+  const t=ac.currentTime+.01;
+  const f=mtof(m);
+
+  osc('sine',f,f,t,.9,.16,1);
+  osc('sine',f*2.01,f*2.01,t,.4,.05,1);
+};
+
+function riserSfx(len){
+  if(!ac)return;
+
+  const t=ac.currentTime+.01;
+
+  nz(t,len,'bandpass',300,1.4,.3,1,9000);
+  osc('sawtooth',55,880,t,len,.08,0);
+}
+
+function finalSfx(){
+
+  if(!ac)return;
+
+  const t=ac.currentTime+.45;
+
+  tdLP.frequency.setTargetAtTime(18000,ac.currentTime,.05);
+
+  osc('sine',110,20,t,3,1.1,1);
+  nz(t,2.4,'lowpass',2500,.8,.7,1,120);
+
+  [0,7,12,16,19,24].forEach((o,i)=>{
+    osc('triangle',mtof(45+o),mtof(45+o)*1.002,t+.1+i*.12,3.4,.09,1);
+  });
+}
+
+/* ---------- PHYSICS ---------- */
+
+let state='idle';
+let pt=0;
+let kmh=START_KMH;
+
+let px=0,py=0;
+let dx=1,dy=0;
+
+let riseT=0;
+let phi=PHI_A;
+let msI=0;
+
+let clock=0,last=0;
+let flash=0,trauma=0;
+let toastT=0;
+let lastHud={};
+
+const path=[],parts=[],rips=[];
+
+const beta=()=>kmh/C_KMH;
+
+const gamma=()=>(
+  state==='rise'||state==='final'||state==='end'
+    ?Math.cosh(phi)
+    :1/Math.sqrt(1-beta()*beta())
+);
+
+const progress=()=>(
+  state==='run'||state==='idle'
+    ? .7*Math.log(kmh/START_KMH)/Math.log(V_A/START_KMH)
+    : state==='rise'
+      ? .7+.3*(phi-PHI_A)/(PHI_MAX-PHI_A)
+      :1
+);
+
+const pxSpeed=()=>(
+  V0*Math.pow(Math.min(kmh,V_A)/START_KMH,SPEED_EXP)
+  *(state==='rise'
+    ?1+.4*clamp((phi-PHI_A)/(PHI_MAX-PHI_A),0,1)
+    :1)
+  *(state==='final'||state==='end'?.6:1)
+);
+
+function reset(){
+
+  const a=rnd(0,TAU);
+  const r=rnd(0,RR*.5);
+  const d=rnd(0,TAU);
+
+  px=Math.cos(a)*r;
+  py=Math.sin(a)*r;
+
+  dx=Math.cos(d);
+  dy=Math.sin(d);
+
+  kmh=START_KMH;
+  phi=PHI_A;
+  riseT=0;
+  msI=0;
+
+  flash=0;
+  trauma=0;
+  hitN=0;
+
+  parts.length=0;
+  rips.length=0;
+  path.length=0;
+
+  state='idle';
+  pt=0;
+
+  hidden('end',1);
+
+  $('hook').style.opacity=1;
+
+  $('flash').style.transition='none';
+  $('flash').style.opacity=0;
+
+  mus.on=started;
+  mus.step=0;
+
+  lastHud={};
+}
+
+const hidden=(id,h)=>{
+  $(id).style.opacity=h?0:1;
+};
+
+/* ---------- EVENT-DRIVEN COLLISION PHYSICS ---------- */
+
+function simulate(dt){
+
+  path.length=0;
+  path.push(px,py);
+
+  let rem=dt;
+  let hits=0;
+  let budget=quality>1?4:2;
+
+  const P=progress();
+
+  while(rem>1e-9&&hits<MAX_HITS_FRAME){
+
+    const v=pxSpeed();
+
+    const b=(px*dx+py*dy)*v;
+    const c=px*px+py*py-RR*RR;
+    const a=v*v;
+
+    const tHit=(-b+Math.sqrt(Math.max(0,b*b-a*c)))/a;
+
+    if(tHit>=rem){
+      px+=dx*v*rem;
+      py+=dy*v*rem;
+      rem=0;
+      break;
+    }
+
+    px+=dx*v*tHit;
+    py+=dy*v*tHit;
+    rem-=tHit;
+
+    const L=Math.hypot(px,py)||1;
+    const nx=px/L;
+    const ny=py/L;
+
+    px=nx*RR;
+    py=ny*RR;
+
+    const dot=dx*nx+dy*ny;
+
+    dx-=2*dot*nx;
+    dy-=2*dot*ny;
+
+    const n=Math.hypot(dx,dy)||1;
+
+    dx/=n;
+    dy/=n;
+
+    hits++;
+
+    path.push(px,py);
+
+    hitSfx((px/RR+1)/2,P);
+
+    trauma=Math.min(1,trauma+.012+.05*P*P);
+
+    if(budget>0){
+
+      budget--;
+
+      rips.push({
+        a:Math.atan2(py,px),
+        age:0
+      });
+
+      if(rips.length>36)
+        rips.shift();
+
+      for(let i=0;i<(quality>1?2:1)&&parts.length<120;i++){
+
+        const sp=rnd(120,520)*(.5+P);
+
+        parts.push({
+          x:px,y:py,
+          vx:-nx*sp*rnd(.3,1)+rnd(-90,90),
+          vy:-ny*sp*rnd(.3,1)+rnd(-90,90),
+          age:0,
+          life:rnd(.25,.6)
+        });
+      }
+    }
+
+    if(state==='run'){
+
+      kmh=Math.min(V_A,kmh*HIT_MULT);
+
+      if(kmh>=V_A){
+        state='rise';
+        riseT=0;
+        phi=PHI_A;
+        riserSfx(RISE_TIME);
+        break;
+      }
+    }
+  }
+
+  path.push(px,py);
+}
+
+/* ---------- UPDATE ---------- */
+
+function update(dt){
+
+  clock+=dt;
+  pt+=dt;
+
+  flash*=Math.pow(.02,dt);
+  trauma*=Math.pow(.1,dt);
+
+  const P=progress();
+
+  musicTick(P);
+
+  if(state==='idle'){
+
+    if(pt>=INTRO){
+      state='run';
+      pt=0;
+      $('hook').style.opacity=0;
+    }
+
+    audioState(0,1,0);
+    return;
+  }
+
+  if(state==='rise'){
+
+    riseT+=dt;
+
+    const k=clamp(riseT/RISE_TIME,0,1);
+
+    phi=lerp(PHI_A,PHI_MAX,Math.pow(k,1.15));
+
+    kmh=Math.tanh(phi)*C_KMH;
+
+    if(k>=1){
+
+      state='final';
+      pt=0;
+      mus.on=false;
+      flash=1;
+
+      if(HONEST_ENDING)
+        kmh=BETA_MAX*C_KMH;
+      else
+        kmh=C_KMH;
+
+      finalSfx();
+    }
+  }
+
+  if(state==='run'||state==='rise'||state==='final')
+    simulate(dt);
+
+  while(msI<MS.length&&kmh>=MS[msI][0]){
+
+    toast(MS[msI][1]);
+
+    if(ac)
+      ping(69+2*msI);
+
+    msI++;
+  }
+
+  if(state==='final'){
+
+    const k=pt/FINAL;
+
+    $('flash').style.opacity=clamp(
+      Math.sin(clamp(k,0,1)*Math.PI*.75)*.18,
+      0,.18
+    );
+
+    if(pt>=FINAL){
+      state='end';
+      pt=0;
+      endCard();
+    }
+  }
+
+  if(state==='end'&&pt>END_HOLD){
+    reset();
+    return;
+  }
+
+  audioState(
+    P,
+    state==='final'||state==='end'?1:gamma(),
+    state==='rise'||state==='run'?1:0
+  );
+}
+
+/* ---------- ENDING ---------- */
+
+function endCard(){
+
+  const fl=$('flash');
+
+  fl.style.transition='opacity .9s';
+  fl.style.opacity=0;
+
+  const g=Math.cosh(PHI_MAX);
+
+  $('e1').innerHTML=HONEST_ENDING
+    ?'99.99999%<br>OF LIGHT SPEED'
+    :'LIGHT SPEED<br>REACHED?!';
+
+  $('e2').textContent=HONEST_ENDING
+    ?'ALMOST. BUT NOTHING WITH MASS CAN REACH IT'
+    :'NOT IN REAL LIFE…';
+
+  $('e3').textContent=HONEST_ENDING
+    ?`TIME NOW RUNS ×${Math.round(g).toLocaleString('en-US')} SLOWER · 100% NEEDS ∞ ENERGY`
+    :'ENERGY NEEDED: ∞';
+
+  hidden('end',0);
+}
+
+function toast(text){
+
+  const e=$('toast');
+
+  $('toastv').textContent=text;
+  e.style.opacity=1;
+
+  clearTimeout(toastT);
+
+  toastT=setTimeout(()=>{
+    e.style.opacity=0;
+  },1700);
+}
+
+/* ---------- MINIMAL DRAWING ---------- */
+
+function draw(dt){
+
+  const P=progress();
+
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.fillStyle='#050607';
+  ctx.fillRect(0,0,cv.width,cv.height);
+
+  ctx.setTransform(K,0,0,K,0,0);
+
+  // Arena
+  ctx.strokeStyle='#626b73';
+  ctx.lineWidth=2;
+  ctx.beginPath();
+  ctx.arc(CX,CY,ARENA_R,0,TAU);
+  ctx.stroke();
+
+  // Inner thin line
+  ctx.strokeStyle='rgba(160,170,180,.17)';
+  ctx.lineWidth=1;
+  ctx.beginPath();
+  ctx.arc(CX,CY,ARENA_R-12,0,TAU);
+  ctx.stroke();
+
+  // Progress indicator
+  if(P>0){
+
+    ctx.strokeStyle='#c5cdd3';
+    ctx.lineWidth=3;
+
+    ctx.beginPath();
+
+    ctx.arc(
+      CX,CY,
+      ARENA_R+17,
+      -Math.PI/2,
+      -Math.PI/2+TAU*P
+    );
+
+    ctx.stroke();
+  }
+
+  // Thin movement trail
+  if(path.length>2){
+
+    ctx.strokeStyle=`rgba(190,205,215,${clamp(.48-P*.2,.18,.48)})`;
+
+    ctx.lineWidth=2;
+    ctx.lineJoin='round';
+
+    ctx.beginPath();
+
+    ctx.moveTo(CX+path[0],CY+path[1]);
+
+    for(let i=2;i<path.length;i+=2){
+      ctx.lineTo(CX+path[i],CY+path[i+1]);
+    }
+
+    ctx.stroke();
+  }
+
+  // Small impact particles
+  for(let i=parts.length-1;i>=0;i--){
+
+    const p=parts[i];
+
+    p.age+=dt;
+
+    if(p.age>=p.life){
+      parts.splice(i,1);
+      continue;
+    }
+
+    p.x+=p.vx*dt;
+    p.y+=p.vy*dt;
+
+    p.vx*=Math.pow(.15,dt);
+    p.vy*=Math.pow(.15,dt);
+
+    ctx.fillStyle=`rgba(210,220,228,${.65*(1-p.age/p.life)})`;
+
+    ctx.fillRect(
+      CX+p.x-1,
+      CY+p.y-1,
+      2,2
+    );
+  }
+
+  // Main ball
+  ctx.fillStyle='#f0f2f4';
+
+  ctx.beginPath();
+  ctx.arc(CX+px,CY+py,BALL_R,0,TAU);
+  ctx.fill();
+}
+
+/* ---------- HUD ---------- */
+
+const fmtInt=n=>Math.floor(n).toLocaleString('en-US');
+
+const fmtBig=n=>
+  n<1e3
+    ?n.toFixed(n<10?1:0)
+    :n<1e6
+      ?(n/1e3).toFixed(1)+' THOUSAND'
+      :n<1e9
+        ?(n/1e6).toFixed(1)+' MILLION'
+        :(n/1e9).toFixed(1)+' BILLION';
+
+function setT(id,s){
+
+  if(lastHud[id]!==s){
+    lastHud[id]=s;
+    $(id).textContent=s;
+  }
+}
+
+function hud(){
+
+  const b=beta();
+  const g=gamma();
+  const pct=b*100;
+
+  const d=pct<99
+    ?2
+    :clamp(
+      Math.ceil(-Math.log10(Math.max(1-b,1e-12)))-2,
+      2,8
+    );
+
+  setT('spdv',fmtInt(kmh));
+  setT('pct',pct.toFixed(d)+'%');
+
+  setT(
+    'gam',
+    g<10
+      ?g.toFixed(2)
+      :g<1000
+        ?g.toFixed(1)
+        :fmtInt(g)
+  );
+
+  if(b>.01){
+
+    $('en').style.opacity=1;
+
+    setT(
+      'en',
+      'ENERGY OF A 1 KG BALL: '+
+      fmtBig((g-1)*HIROSHIMA_PER_KG_C2)+
+      ' HIROSHIMA BOMBS'
+    );
+
+  }else{
+    $('en').style.opacity=0;
+  }
+}
+
+/* ---------- MAIN LOOP ---------- */
+
+function frame(ts){
+
+  requestAnimationFrame(frame);
+
+  const dt=clamp((ts-last)/1000,.001,.05);
+
+  last=ts;
+
+  ema=lerp(ema,dt,.05);
+
+  if(ema>.022){
+    slowT+=dt;
+    if(slowT>1.2)quality=1;
+  }else{
+    slowT=Math.max(0,slowT-dt*.5);
+  }
+
+  if(!started)return;
+
+  update(dt);
+  draw(dt);
+  hud();
+}
+
+/* ---------- START ---------- */
+
+function begin(){
+
+  if(started)return;
+
+  started=true;
+
+  initAudio();
+
+  try{
+
+    const el=document.documentElement;
+
+    (el.requestFullscreen||
+     el.webkitRequestFullscreen||
+     (()=>{})).call(el);
+
+  }catch(e){}
+
+  try{
+
+    if(navigator.wakeLock)
+      navigator.wakeLock.request('screen').catch(()=>{});
+
+  }catch(e){}
+
+  $('start').classList.add('hide');
+
+  reset();
+}
+
+$('start').addEventListener('click',begin);
+
+$('start').addEventListener('touchend',e=>{
+  e.preventDefault();
+  begin();
+},{passive:false});
+
+function wake(){
+
+  if(started&&ac&&ac.state!=='running'){
+
+    ac.resume();
+
+    const sb=ac.createBufferSource();
+
+    sb.buffer=ac.createBuffer(1,1,22050);
+    sb.connect(ac.destination);
+    sb.start(0);
+  }
+}
+
+['touchend','click','keydown'].forEach(ev=>{
+  addEventListener(ev,wake,true);
+});
+
+$('snd').addEventListener('click',wake);
+
+setInterval(()=>{
+  $('snd').classList.toggle(
+    'on',
+    started&&ac&&ac.state!=='running'
+  );
+},600);
+
+document.addEventListener('visibilitychange',()=>{
+  if(!document.hidden&&ac&&ac.state!=='running')
+    ac.resume();
+});
+
+layout();
+reset();
+requestAnimationFrame(frame);
+
+})();
+</script>
+</body>
+</html>
